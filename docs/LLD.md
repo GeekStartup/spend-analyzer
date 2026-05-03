@@ -89,41 +89,14 @@ spend-analyzer/
 │   ├── main.py
 │   ├── config.py
 │   ├── api/
-│   │   ├── health.py
-│   │   ├── ingestion.py
-│   │   ├── transactions.py
-│   │   ├── summary.py
-│   │   ├── comparison.py
-│   │   └── insights.py
 │   ├── auth/
-│   │   ├── jwt_validator.py
-│   │   └── dependencies.py
 │   ├── db/
-│   │   ├── connection.py
-│   │   ├── migrations/
-│   │   └── repositories/
-│   │       ├── transaction_repository.py
-│   │       └── statement_repository.py
 │   ├── models/
-│   │   ├── transaction.py
-│   │   ├── statement.py
-│   │   └── schemas.py
 │   ├── services/
-│   │   ├── ingestion_service.py
-│   │   ├── pdf_service.py
-│   │   ├── parser_service.py
-│   │   ├── categorizer_service.py
-│   │   ├── analytics_service.py
-│   │   ├── comparison_service.py
-│   │   └── ai_service.py
 │   └── utils/
-│       ├── date_utils.py
-│       └── amount_utils.py
-│
 ├── docs/
 │   ├── LLD.md
 │   └── MVP_ROADMAP.md
-│
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -137,13 +110,6 @@ spend-analyzer/
 ## 7. Configuration Design
 
 All configuration should be loaded from environment variables.
-
-### `app/config.py`
-
-Responsible for:
-- Loading environment variables
-- Validating required config
-- Providing typed config values
 
 ### Configuration Groups
 
@@ -189,7 +155,7 @@ UPLOAD_DIR
 STORAGE_TYPE
 ```
 
-Future:
+Future AWS-related configuration:
 
 ```text
 AWS_REGION
@@ -200,11 +166,10 @@ S3_BUCKET_NAME
 
 ## 8. Authentication and Authorization Design
 
-### Authentication Model
-
 The backend acts as a **resource server**.
 
 It does not handle:
+
 - User registration
 - Password storage
 - Password reset
@@ -262,8 +227,6 @@ Protected endpoint
 
 ## 10. API Layer Design
 
-### API Modules
-
 | Module | Responsibility |
 |---|---|
 | `health.py` | Health checks |
@@ -292,8 +255,6 @@ Response:
 }
 ```
 
----
-
 ### DB Health
 
 ```http
@@ -307,8 +268,6 @@ Response:
   "database": "connected"
 }
 ```
-
----
 
 ### Current User
 
@@ -326,8 +285,6 @@ Response:
 }
 ```
 
----
-
 ### Ingest Statement
 
 ```http
@@ -337,6 +294,7 @@ Content-Type: multipart/form-data
 ```
 
 Request:
+
 - `file`: PDF statement
 - `account_name`: optional
 - `statement_type`: optional, e.g. `credit_card`, `bank_account`
@@ -350,8 +308,6 @@ Response:
   "transactions_ingested": 42
 }
 ```
-
----
 
 ### Monthly Summary
 
@@ -378,8 +334,6 @@ Response:
 }
 ```
 
----
-
 ### Month-on-Month Comparison
 
 ```http
@@ -405,8 +359,6 @@ Response:
   ]
 }
 ```
-
----
 
 ### AI Insights
 
@@ -540,12 +492,14 @@ Return ingestion result
 ### `pdf_service.py`
 
 Responsibilities:
+
 - Open PDF file
 - Extract text
 - Extract tables where available
 - Return raw extracted content
 
 MVP approach:
+
 - Use deterministic extraction
 - Do not use AI for PDF parsing
 - Log extraction failures gracefully
@@ -557,12 +511,9 @@ MVP approach:
 ### `parser_service.py`
 
 Responsibilities:
+
 - Convert raw PDF content into transaction candidates
-- Extract:
-  - transaction date
-  - description
-  - amount
-  - debit/credit type
+- Extract transaction date, description, amount, and debit/credit type
 
 Parser output:
 
@@ -580,6 +531,7 @@ Parser output:
 MVP parser can be heuristic-based.
 
 Future:
+
 - Bank-specific parsers
 - Template-based parsing
 - AI fallback for messy formats
@@ -591,8 +543,6 @@ Future:
 ### `categorizer_service.py`
 
 Rule-based categorization for MVP.
-
-Example rules:
 
 | Keywords | Category |
 |---|---|
@@ -612,6 +562,7 @@ Other
 ```
 
 Future:
+
 - AI-assisted categorization fallback
 - Merchant normalization
 - User-defined category rules
@@ -623,14 +574,16 @@ Future:
 ### `analytics_service.py`
 
 Responsibilities:
+
 - Calculate monthly totals
 - Calculate category breakdown
-- Calculate income, spend, net
+- Calculate income, spend, and net
 - Return structured JSON
 
 Important:
-- All calculations must be done in SQL or backend code
-- AI must not calculate financial totals
+
+- All calculations must be done in SQL or backend code.
+- AI must not calculate financial totals.
 
 ---
 
@@ -639,12 +592,14 @@ Important:
 ### `comparison_service.py`
 
 Responsibilities:
+
 - Compare current month vs previous month
 - Calculate absolute delta
 - Calculate percentage delta
 - Handle missing previous data safely
 
 Zero baseline rule:
+
 - If previous amount is 0, percentage delta should be null or marked as not applicable.
 
 ---
@@ -654,38 +609,12 @@ Zero baseline rule:
 ### `ai_service.py`
 
 Responsibilities:
+
 - Generate insights from structured summaries
 - Explain trends
 - Provide recommendations
 
 Input to AI should be structured summary, not raw private financial PDFs unless required.
-
-Example prompt input:
-
-```json
-{
-  "month": "2026-04",
-  "total_spend": 45000,
-  "top_categories": [
-    {"category": "Food", "amount": 12000},
-    {"category": "Shopping", "amount": 10000}
-  ],
-  "month_on_month": [
-    {"category": "Food", "delta": 3500}
-  ]
-}
-```
-
-Output:
-
-```json
-{
-  "insights": [
-    "Food spend increased compared to last month.",
-    "Shopping remains one of the top categories."
-  ]
-}
-```
 
 ---
 
@@ -696,6 +625,7 @@ Repository modules should contain database logic only.
 ### `transaction_repository.py`
 
 Responsibilities:
+
 - Insert transactions
 - Query transactions by user/month
 - Aggregate by category
@@ -705,6 +635,7 @@ Responsibilities:
 ### `statement_repository.py`
 
 Responsibilities:
+
 - Insert statement metadata
 - Update ingestion status
 - Fetch statement metadata
@@ -712,15 +643,6 @@ Responsibilities:
 ---
 
 ## 22. Error Handling
-
-### General Rules
-
-- Return clear API errors
-- Do not expose internal stack traces
-- Log internal errors
-- Fail gracefully for bad PDFs
-
-### Common Error Responses
 
 | Scenario | Status |
 |---|---|
@@ -731,14 +653,23 @@ Responsibilities:
 | DB unavailable | 503 |
 | Unexpected error | 500 |
 
+Rules:
+
+- Return clear API errors.
+- Do not expose internal stack traces.
+- Log internal errors.
+- Fail gracefully for bad PDFs.
+
 ---
 
 ## 23. Logging
 
 MVP logging:
-- Console logs are sufficient
+
+- Console logs are sufficient.
 
 Log:
+
 - Request start/end
 - File ingestion result
 - Number of parsed transactions
@@ -746,6 +677,7 @@ Log:
 - AI errors
 
 Do not log:
+
 - Access tokens
 - API keys
 - Full sensitive statement content
@@ -770,6 +702,7 @@ Do not log:
 RAG will be added after structured analytics are stable.
 
 Future components:
+
 - `embedding_service.py`
 - `vector_repository.py`
 - `rag_service.py`
@@ -812,6 +745,7 @@ RAG explains context.
 Frontend will be developed as a separate application.
 
 Planned screens:
+
 - Login
 - Statement upload
 - Dashboard
@@ -825,11 +759,13 @@ Planned screens:
 ## 27. Docker Design
 
 Services:
+
 - `app`
 - `db`
 - `identity-provider`
 
 Data persistence:
+
 - PostgreSQL volume
 - Uploaded statement storage volume
 
@@ -875,6 +811,7 @@ Storage abstraction should be introduced before AWS deployment.
 ### Extensibility
 
 The design should support:
+
 - Additional banks
 - Additional users
 - AI categorization

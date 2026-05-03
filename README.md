@@ -2,12 +2,12 @@
 
 > A production-style, AI-powered personal finance intelligence platform for secure, multi-user spend analysis.
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
 ![Auth](https://img.shields.io/badge/Auth-OAuth2%20%2F%20OIDC-purple)
-![Status](https://img.shields.io/badge/Status-MVP%20Development-orange)
+![Status](https://img.shields.io/badge/Status-Planning%20%2F%20MVP%20Development-orange)
 
 ---
 
@@ -26,6 +26,8 @@ The system is designed as a real-world engineering project with:
 - Future support for RAG, email ingestion, SMS ingestion, and dashboards
 
 This project is built with a strong focus on **clean architecture, extensibility, cloud-readiness, and interview-grade system design**.
+
+> **Project status:** This repository is currently in planning and MVP development phase. Application code will be added incrementally through GitHub issues.
 
 ---
 
@@ -92,7 +94,7 @@ PostgreSQL
 
 | Component | Responsibility |
 |---|---|
-| **FastAPI Backend** | API layer, orchestration, business logic |
+| **FastAPI Backend** | API layer, orchestration, and business logic |
 | **PostgreSQL** | Structured transaction and analytics data |
 | **Identity Provider** | OAuth2 / OIDC-based authentication |
 | **Docker** | Local and cloud-ready containerized runtime |
@@ -105,12 +107,10 @@ PostgreSQL
 
 ### 🔐 Secure Multi-user Access
 
-- OAuth2 / OIDC based authentication
+- OAuth2 / OIDC-based authentication
 - JWT-protected APIs
 - User-level data isolation
 - Every transaction linked to an authenticated user
-
----
 
 ### 📥 Statement Ingestion
 
@@ -118,8 +118,6 @@ PostgreSQL
 - Extract text and tabular data
 - Parse transactions into structured records
 - Store transaction history for future analysis
-
----
 
 ### 📊 Financial Analytics
 
@@ -130,23 +128,21 @@ PostgreSQL
 - Month-on-month comparison
 - Historical trend tracking
 
----
-
 ### 🧠 AI-Powered Insights
 
 AI is used to explain and reason over already calculated data.
 
 Examples:
 
-- “Food spending increased significantly this month.”
-- “A large one-time transaction caused the spike in expenses.”
-- “Your recurring subscription expenses are increasing.”
+- Food spending increased significantly this month.
+- A large one-time transaction caused the spike in expenses.
+- Recurring subscription expenses are increasing.
 
 > Financial calculations are always deterministic and performed using backend logic or SQL. AI is not trusted as the source of numerical truth.
 
 ---
 
-### 🔎 Future Natural Language Querying
+## 🔎 Future Natural Language Querying
 
 Planned support for questions like:
 
@@ -209,14 +205,16 @@ spend-analyzer/
 │   └── models/
 │       └── transaction.py
 │
+├── docs/
+│   ├── LLD.md
+│   └── MVP_ROADMAP.md
+│
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example
 ├── README.md
-└── docs/
-    ├── LLD.md
-    └── MVP_ROADMAP.md
+└── .gitignore
 ```
 
 ---
@@ -230,8 +228,6 @@ git clone https://github.com/GeekStartup/spend-analyzer.git
 cd spend-analyzer
 ```
 
----
-
 ### 2. Create Environment File
 
 Create a local `.env` file using `.env.example` as a reference.
@@ -242,15 +238,11 @@ cp .env.example .env
 
 > Do not commit `.env` to GitHub.
 
----
-
 ### 3. Start Services
 
 ```bash
 docker-compose up --build
 ```
-
----
 
 ### 4. Access the Application
 
@@ -317,82 +309,18 @@ Authorization: Bearer <access_token>
 
 ## 🗺️ MVP Roadmap
 
-### MVP 1 — Foundation
+See [`docs/MVP_ROADMAP.md`](docs/MVP_ROADMAP.md) for the complete MVP breakdown and GitHub issue plan.
 
-- FastAPI setup
-- Docker setup
-- PostgreSQL setup
-- Identity provider integration
-- JWT validation
-- User context propagation
+High-level roadmap:
 
----
-
-### MVP 2 — PDF Ingestion
-
-- Upload PDF statements
-- Extract text and tables
-- Parse transactions
-- Store transactions in PostgreSQL
-- Ensure user-level segregation
-
----
-
-### MVP 3 — Analytics
-
-- Monthly summary
-- Category breakdown
-- Merchant analysis
-- Month-on-month comparison
-- Historical spend tracking
-
----
-
-### MVP 4 — AI Intelligence
-
-- AI-generated insights
-- AI-assisted categorization fallback
-- Basic anomaly detection
-- Financial explanation generation
-
----
-
-### MVP 5 — Natural Language Query Layer
-
-- Query intent classification
-- Query-to-SQL mapping
-- Safe SQL execution
-- Human-readable response generation
-
----
-
-### MVP 6 — RAG and Semantic Search
-
-- Store embeddings for statement text and transaction descriptions
-- Retrieve relevant financial context
-- Combine SQL results with retrieved context
-- Generate grounded AI responses
-
----
-
-### MVP 7 — Automation
-
-- Email ingestion
-- SMS ingestion
-- Scheduled statement processing
-- Recurring payment detection
-- Budget alerts
-
----
-
-### MVP 8 — Frontend
-
-- Login flow
-- Statement upload page
-- Dashboard
-- Summary charts
-- Insights page
-- Query interface
+1. **MVP 1 — Foundation**
+2. **MVP 2 — PDF Ingestion**
+3. **MVP 3 — Analytics**
+4. **MVP 4 — AI Intelligence**
+5. **MVP 5 — Natural Language Query Layer**
+6. **MVP 6 — RAG and Semantic Search**
+7. **MVP 7 — Automation**
+8. **MVP 8 — Frontend**
 
 ---
 
@@ -428,8 +356,6 @@ Authorization: Bearer <access_token>
 ## ☁️ Cloud Readiness
 
 The system is designed to be deployable to AWS in the future.
-
-Possible AWS mapping:
 
 | Local Component | AWS Equivalent |
 |---|---|
