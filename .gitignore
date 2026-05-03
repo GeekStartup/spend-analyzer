@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# Docker
+*.log
+
+# Data
+data/
+statements/
+
+# OS
+.DS_Store
+Thumbs.db
