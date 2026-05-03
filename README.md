@@ -1,68 +1,62 @@
 # 💰 Spend Analyzer
 
-> A production-style, AI-powered personal finance intelligence platform for secure, multi-user spend analysis.
+> A production-style personal finance intelligence backend for secure, multi-user spend analysis from bank and credit card statements.
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
 ![Auth](https://img.shields.io/badge/Auth-OAuth2%20%2F%20OIDC-purple)
-![Status](https://img.shields.io/badge/Status-Planning%20%2F%20MVP%20Development-orange)
+![Status](https://img.shields.io/badge/Status-MVP%20Development-orange)
 
 ---
 
 ## 🚀 Overview
 
-**Spend Analyzer** is a secure, containerized backend system that helps users analyze personal financial transactions from bank and credit card statements.
+**Spend Analyzer** is a secure, containerized backend system that helps users analyze personal financial transactions from bank account and credit card statements.
 
-The system is designed as a real-world engineering project with:
+The system is designed with real-world backend architecture principles:
 
-- Secure authentication and authorization
+- Secure OAuth2 / OIDC authentication
 - Multi-user data isolation
 - PDF statement ingestion
+- Support for different statement formats
+- Generic and bank-specific parsing
+- AI-assisted parsing fallback when deterministic parsing fails
 - Structured transaction storage
 - Deterministic financial analytics
-- AI-powered insights and explanations
-- Future support for RAG, email ingestion, SMS ingestion, and dashboards
+- AI-powered explanations and insights in later MVPs
 
-This project is built with a strong focus on **clean architecture, extensibility, cloud-readiness, and interview-grade system design**.
-
-> **Project status:** This repository is currently in planning and MVP development phase. Application code will be added incrementally through GitHub issues.
+> **Project status:** MVP development in progress. Work is tracked through GitHub issues.
 
 ---
 
 ## 🎯 Problem Statement
 
-Personal financial data is often scattered across:
+Personal financial data is scattered across multiple sources:
 
-- Bank account statements
 - Credit card statements
-- Emails
-- SMS notifications
-- Multiple accounts and users
+- Savings account statements
+- Multiple banks
+- Multiple users in the same family
+- Emails and SMS alerts in future phases
 
-This makes it difficult to answer questions like:
+Statement formats vary significantly across banks and may change over time. A rigid parser for every individual card or account would be difficult to maintain.
 
-- Where is my money going every month?
-- Which category has increased compared to last month?
-- What are my top recurring expenses?
-- Are there unusual or high-value transactions?
-- How can I reduce spending?
-
-**Spend Analyzer solves this by converting financial statements into structured, searchable, and intelligent financial insights.**
+**Spend Analyzer solves this by converting statements into a common normalized transaction model using a resilient parsing pipeline.**
 
 ---
 
 ## 🧠 Product Vision
 
-The long-term vision is to build a **personal financial intelligence platform** that can:
+The long-term vision is to build a personal financial intelligence platform that can:
 
 - Maintain month-on-month spend history
 - Compare spending trends over time
 - Detect anomalies and recurring payments
 - Support natural language financial queries
 - Use RAG for contextual financial reasoning
-- Provide personalized recommendations
+- Provide personalized spending insights
 
 ---
 
@@ -79,7 +73,11 @@ FastAPI Backend
   │
   ├── Authentication & User Context
   ├── Statement Ingestion
-  ├── PDF Parsing
+  ├── PDF Text/Table Extraction
+  ├── Generic Parser
+  ├── Bank-Specific Parser
+  ├── AI Parsing Fallback
+  ├── Validation & Review Gate
   ├── Transaction Processing
   ├── Analytics Engine
   └── AI Insight Engine
@@ -95,11 +93,15 @@ PostgreSQL
 | Component | Responsibility |
 |---|---|
 | **FastAPI Backend** | API layer, orchestration, and business logic |
-| **PostgreSQL** | Structured transaction and analytics data |
-| **Identity Provider** | OAuth2 / OIDC-based authentication |
+| **PostgreSQL** | Structured statement, transaction, and analytics data |
+| **Identity Provider** | OAuth2 / OIDC authentication and token issuing |
 | **Docker** | Local and cloud-ready containerized runtime |
-| **AI Provider** | Insight generation and future query intelligence |
-| **PDF Parser** | Extracts transaction data from statements |
+| **PDF Extractor** | Extracts text and table content from statement PDFs |
+| **Generic Parser** | Extracts common transaction patterns across statements |
+| **Bank Parsers** | Handles bank-level quirks for known institutions |
+| **AI Parsing Fallback** | Extracts candidate transactions when deterministic parsing fails |
+| **Validator** | Validates parsed transactions before persistence |
+| **AI Provider** | GPT-based parsing fallback and later insight generation |
 
 ---
 
@@ -110,14 +112,25 @@ PostgreSQL
 - OAuth2 / OIDC-based authentication
 - JWT-protected APIs
 - User-level data isolation
-- Every transaction linked to an authenticated user
+- Every uploaded statement and transaction linked to an authenticated user
 
 ### 📥 Statement Ingestion
 
 - Upload PDF bank or credit card statements
-- Extract text and tabular data
-- Parse transactions into structured records
+- Capture statement metadata such as institution, account type, account name, and statement format
+- Extract text and tables from PDFs
+- Parse transactions into a normalized internal model
 - Store transaction history for future analysis
+
+### 🧾 Resilient Parsing Strategy
+
+The ingestion pipeline uses layered parsing:
+
+```text
+Generic Parser → Bank-Specific Parser → AI Fallback → Manual Review if needed
+```
+
+The goal is to avoid creating one hardcoded parser for every individual card while still handling real-world statement variation.
 
 ### 📊 Financial Analytics
 
@@ -128,30 +141,21 @@ PostgreSQL
 - Month-on-month comparison
 - Historical trend tracking
 
-### 🧠 AI-Powered Insights
+### 🧠 AI Usage
 
-AI is used to explain and reason over already calculated data.
+AI is used carefully.
 
-Examples:
+AI can be used for:
 
-- Food spending increased significantly this month.
-- A large one-time transaction caused the spike in expenses.
-- Recurring subscription expenses are increasing.
+- Parsing fallback when deterministic parsers fail
+- Categorization fallback
+- Explanation and insight generation
+- Natural language query interpretation
+- Future RAG-based contextual reasoning
 
-> Financial calculations are always deterministic and performed using backend logic or SQL. AI is not trusted as the source of numerical truth.
+AI is **not** trusted blindly.
 
----
-
-## 🔎 Future Natural Language Querying
-
-Planned support for questions like:
-
-```text
-How much did I spend on food last month?
-Which merchant did I spend the most on?
-Why was my credit card bill high this month?
-Compare my travel expenses for the last 3 months.
-```
+Financial calculations and final totals are always performed by backend logic or SQL.
 
 ---
 
@@ -160,22 +164,12 @@ Compare my travel expenses for the last 3 months.
 ```text
 SQL calculates.
 Backend validates.
-AI explains.
+AI assists.
 ```
 
-AI is used for:
+AI-generated parsed transactions are treated as **candidate transactions**. They must pass backend validation before persistence.
 
-- Insight generation
-- Explanation
-- Categorization fallback
-- Natural language query interpretation
-- Future RAG-based contextual reasoning
-
-AI is **not** used for:
-
-- Final financial totals
-- Source-of-truth calculations
-- Direct modification of transaction amounts
+Low-confidence parsing results should be marked for review instead of being silently saved.
 
 ---
 
@@ -187,23 +181,25 @@ spend-analyzer/
 │   ├── main.py
 │   ├── config.py
 │   ├── api/
-│   │   ├── health.py
-│   │   ├── ingestion.py
-│   │   ├── summary.py
-│   │   └── insights.py
 │   ├── auth/
-│   │   └── jwt.py
+│   ├── core/
 │   ├── db/
-│   │   ├── connection.py
-│   │   └── migrations/
+│   ├── models/
+│   ├── repositories/
+│   ├── schemas/
 │   ├── services/
-│   │   ├── ingestion_service.py
-│   │   ├── pdf_service.py
-│   │   ├── transaction_service.py
-│   │   ├── analytics_service.py
-│   │   └── ai_service.py
-│   └── models/
-│       └── transaction.py
+│   └── parsing/
+│       ├── pdf_extractor.py
+│       ├── statement_detector.py
+│       ├── generic_parser.py
+│       ├── parse_validator.py
+│       ├── ai_fallback_parser.py
+│       └── bank_parsers/
+│           ├── hdfc_credit_card_parser.py
+│           ├── axis_credit_card_parser.py
+│           ├── indusind_credit_card_parser.py
+│           ├── hdfc_savings_parser.py
+│           └── axis_savings_parser.py
 │
 ├── docs/
 │   ├── LLD.md
@@ -241,16 +237,16 @@ cp .env.example .env
 ### 3. Start Services
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 ### 4. Access the Application
 
 | Service | URL |
 |---|---|
-| Backend API | `http://localhost:8000` |
+| Backend Health | `http://localhost:8000/health` |
 | API Docs | `http://localhost:8000/docs` |
-| Identity Provider | Configured locally through environment variables |
+| Identity Provider | `http://localhost:8080` in local development |
 
 ---
 
@@ -277,7 +273,7 @@ Authorization: Bearer <access_token>
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Application health check |
+| `GET` | `/health` | Application health check |
 | `GET` | `/health/db` | Database connectivity check |
 | `GET` | `/me` | Authenticated user details |
 | `POST` | `/ingest` | Upload statement PDF |
@@ -289,20 +285,26 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 🧾 Data Model: Transaction
+## 🧾 Normalized Transaction Model
+
+All parsers return the same transaction shape.
 
 | Field | Description |
 |---|---|
 | `id` | Unique transaction ID |
 | `user_id` | Authenticated user identifier |
+| `statement_id` | Source statement reference |
 | `transaction_date` | Date of transaction |
 | `description` | Raw transaction description |
 | `merchant` | Normalized merchant name |
 | `category` | Spend category |
 | `amount` | Transaction amount |
 | `transaction_type` | Debit or credit |
-| `account_name` | Source account or card |
-| `source_file_id` | Reference to uploaded statement |
+| `institution` | Bank or card issuer |
+| `account_type` | Credit card or savings account |
+| `account_name` | User-friendly account/card name |
+| `source_parser` | Parser used to extract the transaction |
+| `confidence_score` | Parser confidence score |
 | `created_at` | Record creation timestamp |
 
 ---
@@ -332,7 +334,7 @@ High-level roadmap:
 | Database | PostgreSQL |
 | Authentication | OAuth2 / OIDC |
 | Containerization | Docker, Docker Compose |
-| AI | OpenAI API |
+| AI | OpenAI GPT API |
 | PDF Parsing | pdfplumber |
 | Future RAG | pgvector / vector search |
 | Future Frontend | React / Vite |
@@ -342,10 +344,10 @@ High-level roadmap:
 ## 🧪 Engineering Principles
 
 - One responsibility per module
-- Config-driven behavior
 - No hardcoded secrets
+- Environment-driven configuration
 - SQL for financial correctness
-- AI for insight, not truth
+- AI for fallback and reasoning, not blind persistence
 - Secure-by-default APIs
 - User data isolation at every layer
 - Docker-first local development
@@ -369,7 +371,7 @@ The system is designed to be deployable to AWS in the future.
 
 ## 📌 Project Status
 
-🚧 Currently in MVP planning and development phase.
+🚧 Currently in MVP development phase.
 
 ---
 
