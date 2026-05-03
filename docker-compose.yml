@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    container_name: spend-analyzer-app
+    ports:
+      - "${APP_PORT}:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+    depends_on:
+      - db
+      - identity-provider
+
+  db:
+    image: postgres:16
+    container_name: spend-analyzer-db
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - spend_analyzer_pgdata:/var/lib/postgresql/data
+
+  identity-provider:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: spend-analyzer-idp
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    ports:
+      - "8080:8080"
+
+volumes:
+  spend_analyzer_pgdata:
