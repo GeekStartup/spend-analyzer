@@ -2,7 +2,7 @@
 
 ## Product Goal
 
-Build a secure, multi-user, production-style personal finance backend that can ingest financial statements, maintain transaction history, analyze spending, and generate AI-powered insights.
+Build a secure, multi-user, production-style personal finance backend that can ingest financial statements, maintain transaction history, analyze spending, and generate AI-assisted insights.
 
 ---
 
@@ -19,6 +19,12 @@ MVP 5 → Natural Language Query Layer
 MVP 6 → RAG and Semantic Search
 MVP 7 → Automation
 MVP 8 → Frontend
+```
+
+Important ingestion principle:
+
+```text
+Generic Parser → Bank-Specific Parser → AI Fallback → Manual Review if needed
 ```
 
 ---
@@ -50,11 +56,12 @@ A running backend system with authenticated APIs and user context available.
 - Add `Dockerfile`.
 - Add `docker-compose.yml`.
 - Add `requirements.txt`.
+- Add health endpoint `GET /health`.
 
 **Acceptance Criteria:**
 
 - Project runs locally.
-- Root API endpoint returns a health response.
+- `GET /health` returns a health response.
 - Docker build succeeds.
 
 ---
@@ -65,15 +72,17 @@ A running backend system with authenticated APIs and user context available.
 
 **Tasks:**
 
-- Create `app/config.py`.
+- Create/refine `app/config.py`.
 - Load variables from environment.
 - Validate required values.
 - Avoid hardcoded configuration.
+- Add config and health tests.
 
 **Acceptance Criteria:**
 
 - App starts when required config exists.
 - App fails with clear error when required config is missing.
+- Tests pass.
 
 ---
 
@@ -155,7 +164,33 @@ Allow authenticated users to upload PDF statements and convert them into structu
 
 ## Outcome
 
-PDF statements can be uploaded, parsed, categorized, and stored against the authenticated user.
+PDF statements can be uploaded, extracted, parsed, validated, categorized, and stored against the authenticated user.
+
+## Parsing Strategy
+
+MVP 2 will use a resilient layered parser approach:
+
+```text
+Generic deterministic parser
+  ↓ if confidence is low
+Bank-specific deterministic parser
+  ↓ if confidence is still low
+AI-assisted fallback parser
+  ↓ if still uncertain
+Manual review / NEEDS_REVIEW status
+```
+
+AI output is never blindly persisted. AI returns candidate transactions that must pass backend validation before storage.
+
+## Initial Statement Types
+
+Initial focus:
+
+- HDFC credit card statements
+- Axis credit card statements
+- IndusInd credit card statements
+- HDFC savings account statements later
+- Axis savings account statements later
 
 ## Issues
 
@@ -174,6 +209,11 @@ POST /ingest
 - Accept multipart PDF file.
 - Validate file type.
 - Save file locally.
+- Accept optional statement metadata:
+  - institution
+  - account_type
+  - account_name
+  - statement_format
 - Store statement metadata.
 
 **Acceptance Criteria:**
@@ -181,6 +221,7 @@ POST /ingest
 - PDF upload succeeds.
 - Non-PDF upload fails with 400.
 - Uploaded file has a unique stored filename.
+- Statement metadata is captured when provided.
 
 ---
 
@@ -191,12 +232,13 @@ POST /ingest
 **Tasks:**
 
 - Create `statements` table.
-- Store user_id, filename, path, account name, statement type, status.
+- Store user_id, filename, path, institution, account type, account name, statement format, status, parse confidence, and review flag.
 
 **Acceptance Criteria:**
 
 - Uploaded statement creates a DB record.
 - Statement record is linked to authenticated user.
+- Statement parsing status can be tracked.
 
 ---
 
@@ -210,29 +252,34 @@ POST /ingest
 - Extract text.
 - Extract tables where available.
 - Handle invalid PDFs.
+- Avoid logging full statement content.
 
 **Acceptance Criteria:**
 
 - Extracted content is returned internally.
 - Bad PDFs fail gracefully.
+- Sensitive PDF contents are not logged.
 
 ---
 
-### Issue 2.4 — Transaction Parser
+### Issue 2.4 — Transaction Parsing Pipeline
 
-**Goal:** Convert extracted PDF content into transaction objects.
+**Goal:** Convert extracted PDF content into transaction candidates using resilient parsing.
 
 **Tasks:**
 
-- Parse transaction date.
-- Parse description.
-- Parse amount.
-- Detect debit/credit.
+- Create parsing module structure.
+- Implement generic transaction parser.
+- Implement parser result model.
+- Implement parse validation and confidence scoring.
+- Route low-confidence results to next parsing step.
 
 **Acceptance Criteria:**
 
-- Parser returns list of structured transactions.
+- Parser returns list of structured transaction candidates.
 - Invalid rows are skipped safely.
+- Parse result includes confidence score, warnings, and errors.
+- Low-confidence parsing does not silently persist bad data.
 
 ---
 
@@ -244,29 +291,57 @@ POST /ingest
 
 - Add keyword-based category mapping.
 - Add fallback category `Other`.
+- Categorize common spend patterns like food, groceries, fuel, EMI, payment, fees, and bills.
 
 **Acceptance Criteria:**
 
 - Every parsed transaction has a category.
 - Matching is case-insensitive.
+- Unknown transactions are categorized as `Other`.
 
 ---
 
 ### Issue 2.6 — Persist Transactions
 
-**Goal:** Save parsed transactions to DB.
+**Goal:** Save validated transactions to DB.
 
 **Tasks:**
 
 - Create `transactions` table.
-- Insert transactions in batch.
+- Create `parser_runs` table.
+- Insert valid transactions in batch.
 - Link transactions to statement and user.
+- Store parser name and confidence score.
+- Mark low-confidence statements as `NEEDS_REVIEW` instead of silently saving.
 
 **Acceptance Criteria:**
 
-- Transactions are stored.
+- Valid transactions are stored.
 - Transactions are isolated by user_id.
+- Parser execution details are stored.
 - Insert failures are handled safely.
+- Low-confidence parsing can be reviewed.
+
+---
+
+### Issue 2.7 — AI Parsing Fallback
+
+**Goal:** Prevent ingestion from breaking when deterministic parsing fails.
+
+**Tasks:**
+
+- Add AI fallback parser service.
+- Send extracted statement text/tables to GPT only when deterministic parsing confidence is low.
+- Request structured JSON output.
+- Validate AI output before persistence.
+- Mark statement as `NEEDS_REVIEW` if AI output is invalid or low confidence.
+
+**Acceptance Criteria:**
+
+- AI fallback runs only when needed.
+- AI output follows expected transaction candidate schema.
+- Invalid AI output is rejected safely.
+- Financial data is not silently persisted from unvalidated AI output.
 
 ---
 
@@ -363,11 +438,11 @@ GET /comparison?month=YYYY-MM
 
 ## Goal
 
-Use AI to provide human-readable financial insights.
+Use AI to provide human-readable financial insights from backend-calculated summaries.
 
 ## Outcome
 
-Users can get concise insights based on deterministic summaries.
+Users can get concise insights based on deterministic summaries and comparisons.
 
 ## Issues
 
@@ -714,7 +789,7 @@ Reason:
 
 - Foundation first
 - Ingestion before analytics
-- Analytics before AI
+- Analytics before AI insights
 - Structured query before RAG
 - Frontend after core APIs are stable
 - Automation after data model matures
@@ -728,6 +803,9 @@ The complete product is considered mature when:
 - Multiple users can authenticate securely.
 - Each user can ingest statements.
 - Transactions are accurately stored and isolated.
+- Parser failures are handled safely.
+- AI fallback prevents ingestion from breaking on unknown formats.
+- Low-confidence parse results can be reviewed.
 - Users can analyze monthly and historical spend.
 - Users can ask natural language questions.
 - AI provides grounded insights.
