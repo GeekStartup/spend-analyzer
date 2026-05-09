@@ -16,9 +16,8 @@ def integration_environment():
     if not shutil.which("docker"):
         pytest.skip("Docker is required for integration tests")
 
-    start_integration_stack()
-
     try:
+        start_integration_stack()
         wait_for_http_ok("http://localhost:18000/health")
         yield
     finally:
