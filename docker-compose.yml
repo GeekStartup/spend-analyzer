@@ -10,8 +10,12 @@ services:
       - .:/app
       - ./uploads:/app/uploads
     depends_on:
-      - db
-      - identity-provider
+      db:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+      identity-provider:
+        condition: service_started
 
   db:
     image: postgres:16
@@ -21,9 +25,28 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     volumes:
       - spend_analyzer_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  flyway:
+    image: flyway/flyway:latest
+    container_name: spend-analyzer-flyway
+    environment:
+      FLYWAY_URL: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+      FLYWAY_USER: ${DB_USER}
+      FLYWAY_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./db/migration:/flyway/sql
+    command: migrate
 
   identity-provider:
     image: quay.io/keycloak/keycloak:25.0

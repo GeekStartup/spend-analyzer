@@ -31,6 +31,8 @@ services:
     depends_on:
       db-test:
         condition: service_healthy
+      flyway-test:
+        condition: service_completed_successfully
 
   db-test:
     image: postgres:16
@@ -47,3 +49,16 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
+
+  flyway-test:
+    image: flyway/flyway:latest
+    environment:
+      FLYWAY_URL: jdbc:postgresql://db-test:5432/spend_analyzer_test
+      FLYWAY_USER: spend_user
+      FLYWAY_PASSWORD: change_me
+    depends_on:
+      db-test:
+        condition: service_healthy
+    volumes:
+      - ./db/migration:/flyway/sql
+    command: migrate
