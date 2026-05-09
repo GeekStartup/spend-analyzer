@@ -6,3 +6,5 @@ python-dotenv==1.0.1
 psycopg[binary]==3.2.3
 python-jose[cryptography]==3.3.0
 requests==2.32.3
+pytest==8.3.4
+httpx==0.28.1
