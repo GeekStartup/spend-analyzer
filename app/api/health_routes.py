@@ -15,7 +15,7 @@ def health_check():
 
 
 @router.get("/health/db")
-def database_helath_check():
+def database_health_check():
     try:
         is_connected = check_database_connection()
     except PsycopgError as error:
