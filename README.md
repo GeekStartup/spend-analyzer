@@ -2,6 +2,7 @@
 
 > A production-style personal finance intelligence backend for secure, multi-user spend analysis from bank and credit card statements.
 
+![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
