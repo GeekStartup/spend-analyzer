@@ -1,4 +1,4 @@
-# 💰 Spend Analyzer [![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml)
+# 💰 Spend Analyzer [![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml?query=branch%3Amain+event%3Apush)
 
 > A production-style personal finance intelligence backend for secure, multi-user spend analysis from bank and credit card statements.
 
