@@ -1,7 +1,6 @@
 services:
   app-test:
     build: .
-    container_name: spend-analyzer-app-test
     environment:
       APP_NAME: Spend Analyzer
       APP_ENV: test
@@ -35,7 +34,6 @@ services:
 
   db-test:
     image: postgres:16
-    container_name: spend-analyzer-db-test
     environment:
       POSTGRES_DB: spend_analyzer_test
       POSTGRES_USER: spend_user
