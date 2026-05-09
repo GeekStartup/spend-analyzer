@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,11 +28,11 @@ class Settings(BaseSettings):
     db_port: int = Field(default=5432, description="Database port")
     db_name: str = Field(..., description="Database name")
     db_user: str = Field(..., description="Database user")
-    db_password: str = Field(..., description="Datbase password")
+    db_password: str = Field(..., description="Database password")
 
     # Identity Provider / Keycloak Admin
     keycloak_admin: str = Field(..., description="Keycloak admin username")
-    keycloak_admin_password: str = Field(..., description="Keyclock admin password")
+    keycloak_admin_password: str = Field(..., description="Keycloak admin password")
 
     # Identity Provider / OIDC
     oidc_issuer_url: str = Field(..., description="OIDC issuer URL")
@@ -65,8 +66,12 @@ class Settings(BaseSettings):
         "db_name",
         "db_user",
         "db_password",
+        "keycloak_admin",
+        "keycloak_admin_password",
         "oidc_issuer_url",
         "oidc_jwks_url",
+        "oidc_audience",
+        "oidc_client_id",
     )
     @classmethod
     def must_not_be_blank(cls, value: str) -> str:
@@ -79,7 +84,7 @@ class Settings(BaseSettings):
     def must_be_url_like(cls, value: str) -> str:
         if not value.startswith(("http://", "https://")):
             raise ValueError("Value must start with http:// or https://")
-        return value.rstrip("/")
+        return value.strip()
 
     @computed_field
     @property
@@ -90,8 +95,11 @@ class Settings(BaseSettings):
         Later, database modules can use this instead of manually rebuilding
         the URL in multiple places.
         """
+        db_user = quote_plus(self.db_user)
+        db_password = quote_plus(self.db_password)
+
         return (
-            f"postgresql://{self.db_user}:{self.db_password}"
+            f"postgresql://{db_user}:{db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
