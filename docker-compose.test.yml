@@ -1,0 +1,51 @@
+services:
+  app-test:
+    build: .
+    container_name: spend-analyzer-app-test
+    environment:
+      APP_NAME: Spend Analyzer
+      APP_ENV: test
+      APP_VERSION: 0.1.0
+      APP_PORT: 8000
+
+      DB_HOST: db-test
+      DB_PORT: 5432
+      DB_NAME: spend_analyzer_test
+      DB_USER: spend_user
+      DB_PASSWORD: change_me
+
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: change_me
+
+      OIDC_ISSUER_URL: http://identity-provider-test:8080/realms/spend-analyzer
+      OIDC_JWKS_URL: http://identity-provider-test:8080/realms/spend-analyzer/protocol/openid-connect/certs
+      OIDC_AUDIENCE: spend-analyzer-api
+      OIDC_CLIENT_ID: spend-analyzer-api
+
+      OPENAI_API_KEY: ""
+      OPENAI_MODEL: gpt-4.1-mini
+
+      UPLOAD_DIR: /app/uploads-test
+      STORAGE_TYPE: local
+    ports:
+      - "18000:8000"
+    depends_on:
+      db-test:
+        condition: service_healthy
+
+  db-test:
+    image: postgres:16
+    container_name: spend-analyzer-db-test
+    environment:
+      POSTGRES_DB: spend_analyzer_test
+      POSTGRES_USER: spend_user
+      POSTGRES_PASSWORD: change_me
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spend_user -d spend_analyzer_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
