@@ -59,7 +59,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("app_name", "db_host", "db_name", "db_user", "db_password")
+    @field_validator(
+        "app_name",
+        "db_host",
+        "db_name",
+        "db_user",
+        "db_password",
+        "oidc_issuer_url",
+        "oidc_jwks_url",
+    )
     @classmethod
     def must_not_be_blank(cls, value: str) -> str:
         if not value or not value.strip():
@@ -83,8 +91,8 @@ class Settings(BaseSettings):
         the URL in multiple places.
         """
         return (
-            f"postgresql+psycopg://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.app_port}/{self.db_name}"
+            f"postgresql://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
     @computed_field
