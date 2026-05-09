@@ -38,7 +38,7 @@ services:
     image: flyway/flyway:latest
     container_name: spend-analyzer-flyway
     environment:
-      FLYWAY_URL: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+      FLYWAY_URL: jdbc:postgresql://db:5432/${DB_NAME}
       FLYWAY_USER: ${DB_USER}
       FLYWAY_PASSWORD: ${DB_PASSWORD}
     depends_on:

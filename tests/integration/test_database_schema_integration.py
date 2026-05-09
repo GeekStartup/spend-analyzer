@@ -51,6 +51,43 @@ def test_schema_creates_statement_and_transaction_tables():
 
 
 @pytest.mark.integration
+def test_metadata_free_statement_can_be_inserted():
+    user_id = f"user-{uuid4()}"
+
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO statements (
+                    user_id,
+                    original_file_name,
+                    stored_file_path,
+                    status
+                )
+                VALUES (%s, %s, %s, %s)
+                RETURNING id, account_name, account_type, institution, statement_format
+                """,
+                (
+                    user_id,
+                    "unknown-statement.pdf",
+                    "/app/uploads/unknown-statement.pdf",
+                    "UPLOADED",
+                ),
+            )
+
+            row = cursor.fetchone()
+
+        connection.commit()
+
+    assert row is not None
+    assert row[0] is not None
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] is None
+    assert row[4] is None
+
+
+@pytest.mark.integration
 def test_sample_statement_and_transaction_can_be_inserted_and_queried():
     user_id = f"user-{uuid4()}"
 
@@ -60,22 +97,30 @@ def test_sample_statement_and_transaction_can_be_inserted_and_queried():
                 """
                 INSERT INTO statements (
                     user_id,
+                    institution,
+                    account_type,
                     account_name,
-                    statement_type,
+                    statement_format,
                     original_file_name,
                     stored_file_path,
-                    status
+                    status,
+                    parse_confidence,
+                    review_required
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     user_id,
-                    "HDFC Millennia Credit Card",
+                    "hdfc",
                     "credit_card",
+                    "HDFC Millennia Credit Card",
+                    "hdfc_credit_card",
                     "hdfc-millennia-may-2026.pdf",
                     "/app/uploads/hdfc-millennia-may-2026.pdf",
-                    "uploaded",
+                    "UPLOADED",
+                    None,
+                    False,
                 ),
             )
 
@@ -94,9 +139,13 @@ def test_sample_statement_and_transaction_can_be_inserted_and_queried():
                     category,
                     amount,
                     transaction_type,
-                    account_name
+                    institution,
+                    account_type,
+                    account_name,
+                    source_parser,
+                    confidence_score
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -108,7 +157,11 @@ def test_sample_statement_and_transaction_can_be_inserted_and_queried():
                     "Food",
                     Decimal("425.50"),
                     "debit",
+                    "hdfc",
+                    "credit_card",
                     "HDFC Millennia Credit Card",
+                    "manual_test_parser",
+                    Decimal("1.0000"),
                 ),
             )
 
@@ -125,6 +178,8 @@ def test_sample_statement_and_transaction_can_be_inserted_and_queried():
                     t.category,
                     t.amount,
                     t.transaction_type,
+                    t.source_parser,
+                    t.confidence_score,
                     s.original_file_name
                 FROM transactions t
                 JOIN statements s
@@ -147,7 +202,48 @@ def test_sample_statement_and_transaction_can_be_inserted_and_queried():
     assert result_row[3] == "Food"
     assert result_row[4] == Decimal("425.50")
     assert result_row[5] == "debit"
-    assert result_row[6] == "hdfc-millennia-may-2026.pdf"
+    assert result_row[6] == "manual_test_parser"
+    assert result_row[7] == Decimal("1.0000")
+    assert result_row[8] == "hdfc-millennia-may-2026.pdf"
+
+
+@pytest.mark.integration
+def test_statement_can_be_marked_for_review():
+    user_id = f"user-{uuid4()}"
+
+    with get_db_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO statements (
+                    user_id,
+                    original_file_name,
+                    stored_file_path,
+                    status,
+                    parse_confidence,
+                    review_required
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING status, parse_confidence, review_required
+                """,
+                (
+                    user_id,
+                    "needs-review.pdf",
+                    "/app/uploads/needs-review.pdf",
+                    "NEEDS_REVIEW",
+                    Decimal("0.5000"),
+                    True,
+                ),
+            )
+
+            row = cursor.fetchone()
+
+        connection.commit()
+
+    assert row is not None
+    assert row[0] == "NEEDS_REVIEW"
+    assert row[1] == Decimal("0.5000")
+    assert row[2] is True
 
 
 @pytest.mark.integration
@@ -161,22 +257,18 @@ def test_transaction_cannot_reference_another_users_statement():
                 """
                 INSERT INTO statements (
                     user_id,
-                    account_name,
-                    statement_type,
                     original_file_name,
                     stored_file_path,
                     status
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     statement_owner_user_id,
-                    "Axis Savings Account",
-                    "savings_account",
                     "axis-savings-may-2026.pdf",
                     "/app/uploads/axis-savings-may-2026.pdf",
-                    "uploaded",
+                    "UPLOADED",
                 ),
             )
 
@@ -195,10 +287,9 @@ def test_transaction_cannot_reference_another_users_statement():
                         merchant,
                         category,
                         amount,
-                        transaction_type,
-                        account_name
+                        transaction_type
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         different_user_id,
@@ -209,7 +300,6 @@ def test_transaction_cannot_reference_another_users_statement():
                         "Transfer",
                         Decimal("1000.00"),
                         "credit",
-                        "Axis Savings Account",
                     ),
                 )
 
@@ -221,10 +311,12 @@ def test_common_query_indexes_exist():
     expected_indexes = {
         "idx_statements_user_uploaded_at",
         "idx_statements_user_status",
+        "idx_statements_user_review_required",
         "idx_transactions_user_date",
         "idx_transactions_user_category",
         "idx_transactions_user_merchant",
         "idx_transactions_statement_id",
+        "idx_transactions_user_source_parser",
     }
 
     with get_db_connection() as connection:
