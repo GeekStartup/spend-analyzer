@@ -15,7 +15,7 @@ def get_db_connection() -> Generator[Connection, None, None]:
     This is intentionally kept in the db layer so routes do not directly
     manage database connection details.
     """
-    connection = psycopg.connect(settings.database_url)
+    connection = psycopg.connect(settings.database_url, connect_timeout=3)
 
     try:
         yield connection

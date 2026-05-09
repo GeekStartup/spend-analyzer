@@ -25,7 +25,7 @@ def start_integration_stack() -> None:
     """
     Start all Docker services required for integration tests.
     """
-    run_docker_compose_command("up", "-d")
+    run_docker_compose_command("up", "-d", "--build")
 
 
 def stop_integration_stack() -> None:
