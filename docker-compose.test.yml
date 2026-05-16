@@ -62,7 +62,7 @@ services:
       db-test:
         condition: service_healthy
     volumes:
-      - ./db/migration:/flyway/sql
+      - ./infra/db/migration:/flyway/sql
     command: migrate
 
   identity-provider-test:

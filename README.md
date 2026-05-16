@@ -195,17 +195,19 @@ spend-analyzer/
 │       ├── parse_validator.py
 │       ├── ai_fallback_parser.py
 │       └── bank_parsers/
-│           ├── hdfc_credit_card_parser.py
-│           ├── axis_credit_card_parser.py
-│           ├── indusind_credit_card_parser.py
-│           ├── hdfc_savings_parser.py
-│           └── axis_savings_parser.py
 │
 ├── docs/
 │   ├── LLD.md
 │   └── MVP_ROADMAP.md
 │
+├── infra/
+│   ├── db/
+│   │   └── migration/
+│   └── keycloak/
+│       └── local/
+│
 ├── docker-compose.yml
+├── docker-compose.test.yml
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example
@@ -248,6 +250,7 @@ docker compose up --build
 | Database Health | `http://localhost:8000/health/db` |
 | API Docs | `http://localhost:8000/docs` |
 | Identity Provider | `http://localhost:8080` in local development |
+
 For local Keycloak realm setup and access token generation, see [`docs/LOCAL_IDENTITY_PROVIDER.md`](docs/LOCAL_IDENTITY_PROVIDER.md).
 
 ---
