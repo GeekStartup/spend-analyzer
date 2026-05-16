@@ -248,6 +248,7 @@ docker compose up --build
 | Database Health | `http://localhost:8000/health/db` |
 | API Docs | `http://localhost:8000/docs` |
 | Identity Provider | `http://localhost:8080` in local development |
+For local Keycloak realm setup and access token generation, see [`docs/LOCAL_IDENTITY_PROVIDER.md`](docs/LOCAL_IDENTITY_PROVIDER.md).
 
 ---
 
@@ -257,11 +258,13 @@ The project uses `pytest` for automated tests.
 
 | Command | Purpose |
 |---|---|
-| `pytest` | Run fast/unit tests only |
+| `pytest` | Run all tests |
+| `pytest --unit` | Run unit / non-integration tests only |
 | `pytest --integration` | Run Docker-backed integration tests only |
-| `pytest --all` | Run both unit and integration tests |
 
 Integration tests use `docker-compose.test.yml` to run the application with test infrastructure.
+
+Running `pytest` or `pytest --integration` requires Docker because integration tests start the Dockerized test stack.
 
 ---
 

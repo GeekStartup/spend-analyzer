@@ -16,10 +16,10 @@ services:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: change_me
 
-      OIDC_ISSUER_URL: http://identity-provider-test:8080/realms/spend-analyzer
+      OIDC_ISSUER_URL: http://localhost:58080/realms/spend-analyzer
       OIDC_JWKS_URL: http://identity-provider-test:8080/realms/spend-analyzer/protocol/openid-connect/certs
       OIDC_AUDIENCE: spend-analyzer-api
-      OIDC_CLIENT_ID: spend-analyzer-api
+      OIDC_CLIENT_ID: spend-analyzer-local
 
       OPENAI_API_KEY: ""
       OPENAI_MODEL: gpt-4.1-mini
@@ -33,6 +33,8 @@ services:
         condition: service_healthy
       flyway-test:
         condition: service_completed_successfully
+      identity-provider-test:
+        condition: service_started
 
   db-test:
     image: postgres:16
@@ -62,3 +64,16 @@ services:
     volumes:
       - ./db/migration:/flyway/sql
     command: migrate
+
+  identity-provider-test:
+    image: quay.io/keycloak/keycloak:25.0
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: change_me
+    volumes:
+      - ./infra/keycloak/local:/opt/keycloak/data/import:ro
+    ports:
+      - "58080:8080"
