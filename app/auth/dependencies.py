@@ -5,10 +5,10 @@ from app.auth.jwt_validator import JwtValidationError, validate_access_token
 from app.schemas.auth_schema import AuthenticatedUser
 
 
-outh2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-def get_current_user(token: str = Depends(outh2_scheme)) -> AuthenticatedUser:
+def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthenticatedUser:
     try:
         claims = validate_access_token(token)
     except JwtValidationError as error:
