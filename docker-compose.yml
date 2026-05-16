@@ -48,7 +48,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./db/migration:/flyway/sql
+      - ./infra/db/migration:/flyway/sql
     command: migrate
 
   identity-provider:
