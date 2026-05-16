@@ -1,8 +1,8 @@
 from functools import lru_cache
 from typing import Any
 
-from jose import ExpiredSignatureError, JWTError, jwt
 import requests
+from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.config import settings
 
@@ -69,6 +69,6 @@ def validate_access_token(token: str) -> dict[str, Any]:
     subject = claims.get("sub")
 
     if not subject:
-        raise JwtValidationError("Token does not conation subject")
+        raise JwtValidationError("Token does not contain subject")
 
     return claims
