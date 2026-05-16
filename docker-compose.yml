@@ -6,6 +6,9 @@ services:
       - "${APP_PORT}:8000"
     env_file:
       - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
     volumes:
       - .:/app
       - ./uploads:/app/uploads
@@ -51,10 +54,14 @@ services:
   identity-provider:
     image: quay.io/keycloak/keycloak:25.0
     container_name: spend-analyzer-idp
-    command: start-dev
+    command:
+      - start-dev
+      - --import-realm
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    volumes:
+      - ./infra/keycloak/local:/opt/keycloak/data/import:ro
     ports:
       - "8080:8080"
 

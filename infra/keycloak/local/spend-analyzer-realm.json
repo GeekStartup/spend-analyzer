@@ -1,0 +1,76 @@
+{
+    "realm": "spend-analyzer",
+    "enabled": true,
+    "displayName": "Spend Analyzer",
+    "registrationAllowed": false,
+    "resetPasswordAllowed": true,
+    "loginWithEmailAllowed": true,
+    "duplicateEmailsAllowed": false,
+    "clients": [
+        {
+            "clientId": "spend-analyzer-api",
+            "name": "Spend Analyzer API",
+            "enabled": true,
+            "protocol": "openid-connect",
+            "publicClient": false,
+            "standardFlowEnabled": false,
+            "directAccessGrantsEnabled": false,
+            "implicitFlowEnabled": false,
+            "serviceAccountsEnabled": false,
+            "redirectUris": [],
+            "webOrigins": []
+        },
+        {
+            "clientId": "spend-analyzer-local",
+            "name": "Spend Analyzer Local Development Client",
+            "enabled": true,
+            "protocol": "openid-connect",
+            "publicClient": true,
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "implicitFlowEnabled": false,
+            "redirectUris": [
+                "http://localhost:3000/*",
+                "http://localhost:5173/*",
+                "http://localhost:8000/*"
+            ],
+            "webOrigins": [
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:8000"
+            ],
+            "protocolMappers": [
+                {
+                    "name": "spend-analyzer-api-audience",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "spend-analyzer-api",
+                        "included.custom.audience": "",
+                        "access.token.claim": "true",
+                        "id.token.claim": "false",
+                        "userinfo.token.claim": "false"
+                    }
+                }
+            ]
+        }
+    ],
+    "users": [
+        {
+            "username": "test.user",
+            "enabled": true,
+            "email": "test.user@example.com",
+            "emailVerified": true,
+            "firstName": "Test",
+            "lastName": "User",
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "change_me",
+                    "temporary": false
+                }
+            ]
+        }
+    ]
+}
