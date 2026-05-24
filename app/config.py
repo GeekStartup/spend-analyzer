@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     upload_dir: str = Field(
         default="/app/uploads", description="Statement upload directory"
     )
+    max_upload_size_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        gt=0,
+        description="Maximum statement upload size in bytes",
+    )
     storage_type: Literal["local", "s3"] = Field(
         default="local",
         description="Storage backend type",
