@@ -22,12 +22,14 @@ TEST_MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 def create_upload_file(
     *,
     filename: str = "statement.pdf",
-    content_type: str = "application/pdf",
+    content_type: str | None = "application/pdf",
 ) -> UploadFile:
+    headers = Headers({}) if content_type is None else Headers({"content-type": content_type})
+
     return UploadFile(
         filename=filename,
         file=BytesIO(b"%PDF-1.4 sample content"),
-        headers=Headers({"content-type": content_type}),
+        headers=headers,
     )
 
 
@@ -53,6 +55,22 @@ def test_validate_pdf_metadata_accepts_pdf_file_with_content_type_parameters():
     file = create_upload_file(content_type="application/pdf; charset=binary")
 
     validate_pdf_metadata(file)
+
+
+def test_validate_pdf_metadata_accepts_pdf_file_without_content_type():
+    file = create_upload_file(content_type=None)
+
+    validate_pdf_metadata(file)
+
+
+def test_validate_pdf_upload_accepts_pdf_file_without_content_type_when_signature_is_valid():
+    file = create_upload_file(content_type=None)
+
+    validate_pdf_upload(
+        file=file,
+        content=b"%PDF-1.4 sample content",
+        max_upload_size_bytes=TEST_MAX_UPLOAD_SIZE_BYTES,
+    )
 
 
 def test_validate_pdf_metadata_rejects_non_pdf_extension():
