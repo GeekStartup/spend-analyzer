@@ -53,8 +53,11 @@ jobs:
       - name: Run Bandit security scan
         run: python -m bandit -r app
 
-      - name: Audit Python dependencies
+      - name: Audit runtime Python dependencies
         run: python -m pip_audit -r requirements.txt
+
+      - name: Audit development Python dependencies
+        run: python -m pip_audit -r requirements-dev.txt
 
       - name: Run tests with coverage
         run: python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
