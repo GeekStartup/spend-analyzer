@@ -177,6 +177,11 @@ Low-confidence parsing results should be marked for review instead of being sile
 
 ```text
 spend-analyzer/
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       └── build.yml
+│
 ├── app/
 │   ├── main.py
 │   ├── config.py
@@ -206,10 +211,15 @@ spend-analyzer/
 │   └── keycloak/
 │       └── local/
 │
+├── scripts/
+│   └── check_coverage.py
+│
 ├── docker-compose.yml
 ├── docker-compose.test.yml
 ├── Dockerfile
 ├── requirements.txt
+├── requirements-dev.txt
+├── ruff.toml
 ├── .env.example
 ├── README.md
 └── .gitignore
@@ -236,13 +246,24 @@ cp .env.example .env
 
 > Do not commit `.env` to GitHub.
 
-### 3. Start Services
+### 3. Install Python Dependencies for Local Development
+
+Use `requirements.txt` for runtime dependencies and `requirements-dev.txt` for local development, testing, and CI tooling.
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+```
+
+The Docker runtime image installs only `requirements.txt`. Test and quality tools such as `pytest`, `httpx`, `ruff`, `bandit`, `pip-audit`, and `pytest-cov` live in `requirements-dev.txt`.
+
+### 4. Start Services
 
 ```bash
 docker compose up --build
 ```
 
-### 4. Access the Application
+### 5. Access the Application
 
 | Service | URL |
 |---|---|
@@ -268,6 +289,42 @@ The project uses `pytest` for automated tests.
 Integration tests use `docker-compose.test.yml` to run the application with test infrastructure.
 
 Running `pytest` or `pytest --integration` requires Docker because integration tests start the Dockerized test stack.
+
+---
+
+## ✅ Code Quality and Security Checks
+
+Run the same quality gates locally before pushing a pull request:
+
+```bash
+python -m ruff check --output-format=github .
+python -m ruff format --check .
+python -m bandit -r app
+python -m pip_audit -r requirements.txt
+python -m pip_audit -r requirements-dev.txt
+python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+python scripts/check_coverage.py coverage.json 95 95
+```
+
+The build fails unless both coverage thresholds pass:
+
+- Statement / line coverage must be at least 95%.
+- Branch coverage must be at least 95%.
+
+Generated coverage artifacts such as `.coverage`, `coverage.json`, and `htmlcov/` are ignored by Git.
+
+---
+
+## 🤖 Dependency Automation
+
+Dependabot is configured for:
+
+| Ecosystem | Schedule | Purpose |
+|---|---|---|
+| `pip` | Daily | Keep Python dependencies current |
+| `github-actions` | Weekly | Keep workflow actions current |
+
+Dependabot opens pull requests for updates. The build pipeline then validates those updates using Ruff, Bandit, pip-audit, tests, and coverage gates.
 
 ---
 
@@ -357,6 +414,7 @@ High-level roadmap:
 | Containerization | Docker, Docker Compose |
 | AI | OpenAI GPT API |
 | PDF Parsing | pdfplumber |
+| Quality Gates | Ruff, Bandit, pip-audit, pytest-cov |
 | Future RAG | pgvector / vector search |
 | Future Frontend | React / Vite |
 
@@ -373,6 +431,7 @@ High-level roadmap:
 - User data isolation at every layer
 - Docker-first local development
 - Cloud-ready architecture
+- Automated quality gates before merge
 
 ---
 
