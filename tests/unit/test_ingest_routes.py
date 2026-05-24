@@ -4,7 +4,7 @@ import pytest
 from fastapi import UploadFile
 
 from app.api.ingest_routes import normalize_optional_text, read_upload_file_with_limit
-from app.services.file_storage_service import FileStorageError
+from app.services.file_storage_service import UploadTooLargeError
 
 
 def create_upload_file(content: bytes) -> UploadFile:
@@ -36,7 +36,7 @@ async def test_read_upload_file_with_limit_returns_content_within_limit():
 async def test_read_upload_file_with_limit_rejects_content_above_limit():
     file = create_upload_file(b"%PDF-1.4 sample content")
 
-    with pytest.raises(FileStorageError) as error:
+    with pytest.raises(UploadTooLargeError) as error:
         await read_upload_file_with_limit(file, 5)
 
     assert str(error.value) == "Uploaded file exceeds maximum allowed size"
