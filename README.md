@@ -1,5 +1,13 @@
 # Spend Analyzer
 
+[![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml?query=branch%3Amain)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
+![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
+![Auth](https://img.shields.io/badge/Auth-OAuth2%20%2F%20OIDC-purple)
+![Status](https://img.shields.io/badge/Status-MVP%20Development-orange)
+
 Spend Analyzer is a learning-first personal finance backend for secure, multi-user spend analysis from bank and credit card statements.
 
 The project is built to practice production-style backend engineering with Python, FastAPI, PostgreSQL, Docker, OAuth2/OIDC, automated quality gates, and later AI-assisted parsing, RAG, and controlled agentic workflows.
