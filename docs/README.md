@@ -19,9 +19,3 @@ This directory contains project-level documentation. Each file has a distinct pu
 - Keep parser-specific decisions in `PARSING_STRATEGY.md`.
 - Keep operational setup details in focused runbooks such as `LOCAL_IDENTITY_PROVIDER.md`.
 - Keep learning objectives and sequencing in `LEARNING_GUIDE.md`.
-
-## Legacy Documents
-
-`LEARNING_FIRST_DESIGN.md` has been merged into `LEARNING_GUIDE.md` and removed.
-
-`LEARNING_TASK_PLAN.md` is legacy content. Use `LEARNING_GUIDE.md` as the source of truth for learning-oriented planning going forward.
