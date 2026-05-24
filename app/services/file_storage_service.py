@@ -36,7 +36,9 @@ def validate_pdf_metadata(file: UploadFile) -> None:
     if not file.filename.lower().endswith(PDF_EXTENSION):
         raise FileStorageError("Only PDF files are allowed")
 
-    if normalize_content_type(file.content_type) not in PDF_CONTENT_TYPES:
+    normalized_content_type = normalize_content_type(file.content_type)
+
+    if normalized_content_type and normalized_content_type not in PDF_CONTENT_TYPES:
         raise FileStorageError("Only PDF files are allowed")
 
 
