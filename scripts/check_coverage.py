@@ -21,7 +21,9 @@ def main() -> int:
     line_percent = float(totals["percent_covered"])
     covered_branches = int(totals.get("covered_branches", 0))
     num_branches = int(totals.get("num_branches", 0))
-    branch_percent = 100.0 if num_branches == 0 else covered_branches / num_branches * 100
+    branch_percent = (
+        100.0 if num_branches == 0 else covered_branches / num_branches * 100
+    )
 
     print(f"Line coverage: {line_percent:.2f}%")
     print(f"Branch coverage: {branch_percent:.2f}%")

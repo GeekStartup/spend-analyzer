@@ -67,12 +67,16 @@ def test_upload_statement_returns_created_response(client, monkeypatch):
 
         return "stored-statement.pdf", "/tmp/stored-statement.pdf"
 
-    monkeypatch.setattr("app.api.ingest_routes.save_uploaded_pdf", fake_save_uploaded_pdf)
+    monkeypatch.setattr(
+        "app.api.ingest_routes.save_uploaded_pdf", fake_save_uploaded_pdf
+    )
     monkeypatch.setattr("app.api.ingest_routes.uuid4", lambda: "statement-123")
 
     response = client.post(
         "/ingest",
-        files={"file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")},
+        files={
+            "file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")
+        },
         data={
             "institution": "  HDFC  ",
             "account_type": "  savings  ",
@@ -101,7 +105,9 @@ def test_upload_statement_returns_413_for_large_file(client, monkeypatch):
 
     response = client.post(
         "/ingest",
-        files={"file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")},
+        files={
+            "file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")
+        },
     )
 
     assert response.status_code == 413
@@ -114,11 +120,15 @@ def test_upload_statement_returns_400_for_storage_validation_error(client, monke
     def fake_save_uploaded_pdf(**kwargs):
         raise FileStorageError("storage failed")
 
-    monkeypatch.setattr("app.api.ingest_routes.save_uploaded_pdf", fake_save_uploaded_pdf)
+    monkeypatch.setattr(
+        "app.api.ingest_routes.save_uploaded_pdf", fake_save_uploaded_pdf
+    )
 
     response = client.post(
         "/ingest",
-        files={"file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")},
+        files={
+            "file": ("statement.pdf", b"%PDF-1.4 sample content", "application/pdf")
+        },
     )
 
     assert response.status_code == 400
