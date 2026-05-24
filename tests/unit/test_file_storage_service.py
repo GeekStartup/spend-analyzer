@@ -15,7 +15,6 @@ from app.services.file_storage_service import (
     validate_pdf_upload,
 )
 
-
 TEST_MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 
 
@@ -24,7 +23,9 @@ def create_upload_file(
     filename: str = "statement.pdf",
     content_type: str | None = "application/pdf",
 ) -> UploadFile:
-    headers = Headers({}) if content_type is None else Headers({"content-type": content_type})
+    headers = (
+        Headers({}) if content_type is None else Headers({"content-type": content_type})
+    )
 
     return UploadFile(
         filename=filename,
@@ -42,7 +43,9 @@ def test_normalize_content_type_lowercases_mime_type():
 
 
 def test_normalize_content_type_removes_parameters():
-    assert normalize_content_type("application/pdf; charset=binary") == "application/pdf"
+    assert (
+        normalize_content_type("application/pdf; charset=binary") == "application/pdf"
+    )
 
 
 def test_validate_pdf_metadata_accepts_pdf_file_with_case_variant_content_type():

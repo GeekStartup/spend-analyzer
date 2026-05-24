@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
-
 PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 PDF_EXTENSION = ".pdf"
 PDF_SIGNATURE = b"%PDF"

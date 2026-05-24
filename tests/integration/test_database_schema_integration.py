@@ -15,37 +15,35 @@ def test_flyway_migrations_were_applied():
         ("3", "create transactions table"),
     }
 
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
+    with get_db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
                 SELECT version, description
                 FROM flyway_schema_history
                 WHERE success = true
                 ORDER BY installed_rank
                 """
-            )
+        )
 
-            actual_migrations = set(cursor.fetchall())
+        actual_migrations = set(cursor.fetchall())
 
     assert expected_migrations.issubset(actual_migrations)
 
 
 @pytest.mark.integration
 def test_schema_creates_statement_and_transaction_tables():
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
+    with get_db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
                 SELECT table_name
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                   AND table_name IN ('statements', 'transactions')
                 ORDER BY table_name
                 """
-            )
+        )
 
-            table_names = [row[0] for row in cursor.fetchall()]
+        table_names = [row[0] for row in cursor.fetchall()]
 
     assert table_names == ["statements", "transactions"]
 
@@ -319,18 +317,17 @@ def test_common_query_indexes_exist():
         "idx_transactions_user_source_parser",
     }
 
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
+    with get_db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(
+            """
                 SELECT indexname
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND indexname = ANY(%s)
                 """,
-                (list(expected_indexes),),
-            )
+            (list(expected_indexes),),
+        )
 
-            actual_indexes = {row[0] for row in cursor.fetchall()}
+        actual_indexes = {row[0] for row in cursor.fetchall()}
 
     assert actual_indexes == expected_indexes

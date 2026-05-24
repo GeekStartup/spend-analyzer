@@ -15,7 +15,6 @@ from app.services.file_storage_service import (
     validate_pdf_metadata,
 )
 
-
 CHUNK_SIZE_BYTES = 1024 * 1024
 
 router = APIRouter(tags=["Ingestion"])

@@ -3,7 +3,6 @@ import requests
 
 from tests.support.readiness import wait_for_http_ok
 
-
 APP_BASE_URL = "http://localhost:18000"
 KEYCLOAK_BASE_URL = "http://localhost:58080"
 REALM = "spend-analyzer"

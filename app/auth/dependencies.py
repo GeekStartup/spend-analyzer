@@ -4,7 +4,6 @@ from fastapi.security import OAuth2PasswordBearer
 from app.auth.jwt_validator import JwtValidationError, validate_access_token
 from app.schemas.auth_schema import AuthenticatedUser
 
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 

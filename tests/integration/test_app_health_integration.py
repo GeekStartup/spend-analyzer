@@ -1,7 +1,6 @@
 import pytest
 import requests
 
-
 BASE_URL = "http://localhost:18000"
 EXPECTED_SERVICE = {
     "name": "Spend Analyzer",

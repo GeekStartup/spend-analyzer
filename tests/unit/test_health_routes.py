@@ -3,7 +3,6 @@ from psycopg import OperationalError
 
 from app.main import app
 
-
 client = TestClient(app)
 
 
@@ -69,7 +68,9 @@ def test_database_health_check_returns_503_when_database_is_unreachable(monkeypa
     assert body["checks"]["database"]["error"] == "OperationalError"
 
 
-def test_database_health_check_returns_503_when_database_health_check_fails(monkeypatch):
+def test_database_health_check_returns_503_when_database_health_check_fails(
+    monkeypatch,
+):
     def fake_check_database_connection():
         return False
 

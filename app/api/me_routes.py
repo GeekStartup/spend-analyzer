@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from app.auth.dependencies import get_current_user
 from app.schemas.auth_schema import AuthenticatedUser, MeResponse
 
-
 router = APIRouter(tags=["Users"])
 
 
