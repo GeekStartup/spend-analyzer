@@ -23,18 +23,20 @@ def test_normalize_optional_text_trims_value():
     assert normalize_optional_text("  hdfc  ") == "hdfc"
 
 
-def test_read_upload_file_with_limit_returns_content_within_limit():
+@pytest.mark.anyio
+async def test_read_upload_file_with_limit_returns_content_within_limit():
     file = create_upload_file(b"%PDF-1.4 sample content")
 
-    content = pytest.run(async_fn=read_upload_file_with_limit(file, 1024))
+    content = await read_upload_file_with_limit(file, 1024)
 
     assert content == b"%PDF-1.4 sample content"
 
 
-def test_read_upload_file_with_limit_rejects_content_above_limit():
+@pytest.mark.anyio
+async def test_read_upload_file_with_limit_rejects_content_above_limit():
     file = create_upload_file(b"%PDF-1.4 sample content")
 
     with pytest.raises(FileStorageError) as error:
-        pytest.run(async_fn=read_upload_file_with_limit(file, 5))
+        await read_upload_file_with_limit(file, 5)
 
     assert str(error.value) == "Uploaded file exceeds maximum allowed size"
