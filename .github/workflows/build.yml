@@ -45,7 +45,7 @@ jobs:
           python -m pip install -r requirements-dev.txt
 
       - name: Run Ruff lint
-        run: python -m ruff check --select E,F,I,B,UP,SIM --output-format=github .
+        run: python -m ruff check --output-format=github .
 
       - name: Run Ruff format check
         run: python -m ruff format --check .
@@ -56,8 +56,8 @@ jobs:
       - name: Audit Python dependencies
         run: python -m pip_audit -r requirements.txt
 
-      - name: Run all tests
-        run: python -m pytest
+      - name: Run tests with coverage
+        run: python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=90
 
       - name: Clean up integration stack
         if: always()
