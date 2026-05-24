@@ -66,7 +66,7 @@ def test_validate_pdf_metadata_accepts_pdf_file_without_content_type():
     validate_pdf_metadata(file)
 
 
-def test_validate_pdf_upload_accepts_pdf_file_without_content_type_when_signature_is_valid():
+def test_validate_pdf_upload_accepts_pdf_file_without_content_type():
     file = create_upload_file(content_type=None)
 
     validate_pdf_upload(
