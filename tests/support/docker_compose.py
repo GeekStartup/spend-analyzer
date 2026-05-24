@@ -1,7 +1,6 @@
 import subprocess
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_TEST_FILE = PROJECT_ROOT / "docker-compose.test.yml"
 

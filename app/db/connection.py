@@ -30,9 +30,8 @@ def check_database_connection() -> bool:
     SELECT 1 is used because it does not require any application tables.
     This is useful before the database schema exists.
     """
-    with get_db_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            result = cursor.fetchone()
+    with get_db_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
 
     return result == (1,)

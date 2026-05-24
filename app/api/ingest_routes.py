@@ -1,4 +1,5 @@
 from io import BytesIO
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -14,7 +15,6 @@ from app.services.file_storage_service import (
     save_uploaded_pdf,
     validate_pdf_metadata,
 )
-
 
 CHUNK_SIZE_BYTES = 1024 * 1024
 
@@ -62,12 +62,12 @@ async def read_upload_file_with_limit(
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_statement(
-    file: UploadFile = File(...),
-    institution: str | None = Form(default=None),
-    account_type: str | None = Form(default=None),
-    account_name: str | None = Form(default=None),
-    statement_format: str | None = Form(default=None),
-    current_user: AuthenticatedUser = Depends(get_current_user),
+    file: Annotated[UploadFile, File()],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    institution: Annotated[str | None, Form()] = None,
+    account_type: Annotated[str | None, Form()] = None,
+    account_name: Annotated[str | None, Form()] = None,
+    statement_format: Annotated[str | None, Form()] = None,
 ) -> StatementUploadResponse:
     statement_reference = str(uuid4())
 

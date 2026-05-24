@@ -5,7 +5,6 @@ from app.db.connection import check_database_connection
 from app.schemas.health_schema import HealthResponse
 from app.services.health_service import get_database_health_status, get_health_status
 
-
 router = APIRouter(tags=["Health"])
 
 

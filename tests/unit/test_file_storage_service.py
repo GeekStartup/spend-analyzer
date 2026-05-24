@@ -15,7 +15,6 @@ from app.services.file_storage_service import (
     validate_pdf_upload,
 )
 
-
 TEST_MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
 
 
@@ -24,7 +23,9 @@ def create_upload_file(
     filename: str = "statement.pdf",
     content_type: str | None = "application/pdf",
 ) -> UploadFile:
-    headers = Headers({}) if content_type is None else Headers({"content-type": content_type})
+    headers = (
+        Headers({}) if content_type is None else Headers({"content-type": content_type})
+    )
 
     return UploadFile(
         filename=filename,
@@ -42,7 +43,9 @@ def test_normalize_content_type_lowercases_mime_type():
 
 
 def test_normalize_content_type_removes_parameters():
-    assert normalize_content_type("application/pdf; charset=binary") == "application/pdf"
+    assert (
+        normalize_content_type("application/pdf; charset=binary") == "application/pdf"
+    )
 
 
 def test_validate_pdf_metadata_accepts_pdf_file_with_case_variant_content_type():
@@ -63,7 +66,7 @@ def test_validate_pdf_metadata_accepts_pdf_file_without_content_type():
     validate_pdf_metadata(file)
 
 
-def test_validate_pdf_upload_accepts_pdf_file_without_content_type_when_signature_is_valid():
+def test_validate_pdf_upload_accepts_pdf_file_without_content_type():
     file = create_upload_file(content_type=None)
 
     validate_pdf_upload(
@@ -71,6 +74,15 @@ def test_validate_pdf_upload_accepts_pdf_file_without_content_type_when_signatur
         content=b"%PDF-1.4 sample content",
         max_upload_size_bytes=TEST_MAX_UPLOAD_SIZE_BYTES,
     )
+
+
+def test_validate_pdf_metadata_rejects_missing_filename():
+    file = create_upload_file(filename="")
+
+    with pytest.raises(FileStorageError) as error:
+        validate_pdf_metadata(file)
+
+    assert str(error.value) == "Uploaded file name is required"
 
 
 def test_validate_pdf_metadata_rejects_non_pdf_extension():
@@ -148,6 +160,20 @@ def test_create_user_storage_key_hashes_user_id():
     assert "/" not in storage_key
     assert "\\" not in storage_key
     assert len(storage_key) == 64
+
+
+def test_create_user_storage_key_rejects_missing_user_id():
+    with pytest.raises(FileStorageError) as error:
+        create_user_storage_key("")
+
+    assert str(error.value) == "Authenticated user id is required"
+
+
+def test_create_user_storage_key_rejects_blank_user_id():
+    with pytest.raises(FileStorageError) as error:
+        create_user_storage_key("   ")
+
+    assert str(error.value) == "Authenticated user id is required"
 
 
 def test_save_uploaded_pdf_uses_generated_file_name_and_safe_user_folder(tmp_path):

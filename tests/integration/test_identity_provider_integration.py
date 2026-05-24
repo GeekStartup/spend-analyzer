@@ -4,7 +4,6 @@ from jose import jwt
 
 from tests.support.readiness import wait_for_http_ok
 
-
 BASE_URL = "http://localhost:58080"
 REALM = "spend-analyzer"
 EXPECTED_ISSUER = f"{BASE_URL}/realms/{REALM}"
