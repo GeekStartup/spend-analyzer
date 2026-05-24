@@ -76,6 +76,15 @@ def test_validate_pdf_upload_accepts_pdf_file_without_content_type():
     )
 
 
+def test_validate_pdf_metadata_rejects_missing_filename():
+    file = create_upload_file(filename="")
+
+    with pytest.raises(FileStorageError) as error:
+        validate_pdf_metadata(file)
+
+    assert str(error.value) == "Uploaded file name is required"
+
+
 def test_validate_pdf_metadata_rejects_non_pdf_extension():
     file = create_upload_file(filename="statement.txt")
 
@@ -151,6 +160,20 @@ def test_create_user_storage_key_hashes_user_id():
     assert "/" not in storage_key
     assert "\\" not in storage_key
     assert len(storage_key) == 64
+
+
+def test_create_user_storage_key_rejects_missing_user_id():
+    with pytest.raises(FileStorageError) as error:
+        create_user_storage_key("")
+
+    assert str(error.value) == "Authenticated user id is required"
+
+
+def test_create_user_storage_key_rejects_blank_user_id():
+    with pytest.raises(FileStorageError) as error:
+        create_user_storage_key("   ")
+
+    assert str(error.value) == "Authenticated user id is required"
 
 
 def test_save_uploaded_pdf_uses_generated_file_name_and_safe_user_folder(tmp_path):
