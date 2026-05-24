@@ -1,3 +1,4 @@
+from io import BytesIO
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -7,7 +8,12 @@ from app.auth.dependencies import get_current_user
 from app.config import settings
 from app.schemas.auth_schema import AuthenticatedUser
 from app.schemas.ingest_schema import StatementUploadResponse
-from app.services.file_storage_service import FileStorageError, save_uploaded_pdf
+from app.services.file_storage_service import (
+    FileStorageError,
+    UploadTooLargeError,
+    save_uploaded_pdf,
+    validate_pdf_metadata,
+)
 
 
 CHUNK_SIZE_BYTES = 1024 * 1024
@@ -31,7 +37,7 @@ async def read_upload_file_with_limit(
     file: UploadFile,
     max_upload_size_bytes: int,
 ) -> bytes:
-    chunks: list[bytes] = []
+    content = BytesIO()
     total_size = 0
 
     while True:
@@ -43,11 +49,11 @@ async def read_upload_file_with_limit(
         total_size += len(chunk)
 
         if total_size > max_upload_size_bytes:
-            raise FileStorageError("Uploaded file exceeds maximum allowed size")
+            raise UploadTooLargeError("Uploaded file exceeds maximum allowed size")
 
-        chunks.append(chunk)
+        content.write(chunk)
 
-    return b"".join(chunks)
+    return content.getvalue()
 
 
 @router.post(
@@ -66,6 +72,8 @@ async def upload_statement(
     statement_reference = str(uuid4())
 
     try:
+        validate_pdf_metadata(file)
+
         content = await read_upload_file_with_limit(
             file=file,
             max_upload_size_bytes=settings.max_upload_size_bytes,
@@ -80,6 +88,11 @@ async def upload_statement(
             content=content,
             max_upload_size_bytes=settings.max_upload_size_bytes,
         )
+    except UploadTooLargeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(error),
+        ) from error
     except FileStorageError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
