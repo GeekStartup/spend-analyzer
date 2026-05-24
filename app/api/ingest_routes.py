@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-
 from app.auth.dependencies import get_current_user
 from app.config import settings
 from app.schemas.auth_schema import AuthenticatedUser
@@ -30,7 +29,7 @@ def normalize_optional_text(value: str | None) -> str | None:
     response_model=StatementUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def uploas_statement(
+async def upload_statement(
     file: UploadFile = File(...),
     institution: str | None = Form(default=None),
     account_type: str | None = Form(default=None),
