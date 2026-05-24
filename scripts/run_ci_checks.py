@@ -3,7 +3,6 @@ import subprocess
 import sys
 from collections.abc import Sequence
 
-
 Step = tuple[str, list[str]]
 
 
