@@ -18,7 +18,7 @@ def main() -> int:
     coverage = json.loads(coverage_file.read_text(encoding="utf-8"))
     totals = coverage["totals"]
 
-    line_percent = float(totals["percent_covered"])
+    line_percent = float(totals["percent_statements_covered"])
     covered_branches = int(totals.get("covered_branches", 0))
     num_branches = int(totals.get("num_branches", 0))
     branch_percent = (
