@@ -2,140 +2,222 @@
 
 ## 1. Purpose
 
-This document describes the low-level design for **Spend Analyzer**, a secure personal finance backend system.
+This document describes the low-level backend design for **Spend Analyzer**.
 
-The system ingests bank and credit card statements, extracts transactions, validates parsed output, stores transactions securely, and provides analytics and AI-assisted insights.
-
----
-
-## 2. Scope
-
-This LLD focuses on the backend design for the following capabilities:
-
-- User authentication using OAuth2 / OIDC
-- User-level data isolation
-- PDF statement ingestion
-- Generic and bank-specific transaction parsing
-- AI-assisted parsing fallback
-- Transaction validation before persistence
-- PostgreSQL persistence
-- Monthly and category-wise analytics
-- AI-generated insights in later MVPs
-- Future extensibility for RAG, automation, and frontend integration
+Spend Analyzer is a learning-first, production-style personal finance backend. It currently supports secure local development infrastructure, authenticated APIs, database migrations, and authenticated PDF statement upload. Future MVPs will extend this foundation with PDF extraction, transaction parsing, deterministic analytics, AI fallback parsing, RAG, and controlled agentic workflows.
 
 ---
 
-## 3. System Context
+## 2. Design Status
+
+This LLD separates **implemented design** from **planned design**.
+
+### Implemented currently
+
+- FastAPI backend application
+- Environment-driven configuration with Pydantic settings
+- PostgreSQL connectivity
+- Flyway database migrations under `infra/db/migration`
+- Local Keycloak/OIDC identity provider setup
+- JWT validation and authenticated user context
+- `GET /health`
+- `GET /health/db`
+- `GET /me`
+- `POST /ingest` for authenticated PDF upload
+- Local file storage for uploaded PDFs
+- Statement and transaction schema migrations
+- Docker and Docker Compose based local/test runtime
+- Strict CI quality gates: Ruff, Bandit, pip-audit, pytest, line coverage, and branch coverage
+
+### Planned later
+
+- Persist uploaded statement metadata from the ingestion API
+- PDF text/table extraction
+- Statement detection
+- Generic transaction parser
+- Broad bank/account parsers
+- AI parsing fallback
+- Transaction persistence from parsed output
+- Rule-based and AI-assisted categorization
+- Analytics APIs
+- AI insight APIs
+- Natural language query layer
+- RAG and semantic retrieval
+- Controlled finance agent
+- Frontend
+- Cloud deployment
+
+---
+
+## 3. Scope
+
+This document covers:
+
+- Backend module structure
+- Configuration design
+- Authentication and authorization design
+- Current API design
+- Current database schema
+- Current ingestion/upload design
+- Planned parsing, analytics, AI, RAG, and agentic design
+- Security and quality-gate rules
+- Docker/local runtime design
+
+For detailed parser-specific decisions, use [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
+
+For learning objectives and learning phase sequencing, use [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md).
+
+For product requirements, use [`PROJECT_REQUIREMENTS.md`](PROJECT_REQUIREMENTS.md).
+
+---
+
+## 4. System Context
 
 ```text
-User / Client
+Client / API Caller
     |
-    | HTTP API Requests
+    | HTTP API requests
     v
 FastAPI Backend
     |
-    | Validate JWT
+    | Validate JWT access token
     v
-Identity Provider (OIDC)
+OIDC Identity Provider / Keycloak
     |
-    | User context
+    | Authenticated user context
     v
-Business Services
+Application Services
     |
-    | Persist / Query
+    | Read/write
     v
-PostgreSQL
+PostgreSQL + Local File Storage
+```
+
+Future AI/RAG extension:
+
+```text
+Application Services
     |
-    | Optional future context
+    | Controlled calls only
     v
-AI / RAG Layer
+AI Provider / Embedding Provider / Vector Store
 ```
 
 ---
 
-## 4. Core Design Principles
+## 5. Core Design Principles
 
-- Keep authentication externalized through an identity provider.
-- Never trust client-provided user identifiers.
-- Always derive `user_id` from the validated token.
+- Keep authentication externalized through an OIDC identity provider.
+- Backend acts as a resource server.
+- Never trust client-provided `user_id`.
+- Always derive `user_id` from the validated JWT.
 - Store financial data in PostgreSQL.
 - Use SQL/backend logic for calculations.
-- Use generic parsing first, bank-specific parsing second, and AI parsing fallback only when deterministic parsing fails or confidence is low.
-- Validate all parsed transactions before persistence.
-- Do not silently persist low-confidence AI output.
-- Use AI for fallback, categorization, explanation, and future query intelligence.
+- Use generic parsing first, broad bank/account parsing second, and AI fallback only when deterministic parsing fails or confidence is low.
+- Treat AI output as candidate data only.
+- Validate parsed transactions before persistence.
+- Do not silently persist low-confidence output.
 - Keep modules small and independently testable.
-- Make all environment-specific values configurable.
+- Make environment-specific values configurable.
 - Avoid hardcoded secrets.
+- Prefer learning-friendly code that is explicit and easy to explain.
 
 ---
 
-## 5. Technology Stack
+## 6. Technology Stack
 
 | Layer | Technology |
 |---|---|
 | Backend API | Python, FastAPI |
+| Configuration | Pydantic Settings |
 | Database | PostgreSQL |
-| Authentication | OAuth2 / OIDC Provider |
+| Migration tool | Flyway |
+| Authentication | OAuth2 / OIDC, Keycloak locally |
 | Containerization | Docker, Docker Compose |
-| PDF Extraction | pdfplumber |
-| AI Provider | OpenAI GPT API |
+| File upload | FastAPI multipart upload |
+| Local storage | Local filesystem upload directory |
+| Quality gates | Ruff, Bandit, pip-audit, pytest, pytest-cov |
+| Future PDF extraction | pdfplumber or equivalent extractor |
+| Future AI provider | OpenAI-compatible provider abstraction |
 | Future RAG | pgvector / vector search |
-| Future Frontend | React / Vite |
+| Future frontend | React / Vite |
 
 ---
 
-## 6. Project Structure
+## 7. Repository Structure
 
 ```text
 spend-analyzer/
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       └── build.yml
 ├── app/
 │   ├── main.py
 │   ├── config.py
 │   ├── api/
+│   │   ├── health_routes.py
+│   │   ├── ingest_routes.py
+│   │   └── me_routes.py
 │   ├── auth/
+│   │   ├── dependencies.py
+│   │   └── jwt_validator.py
 │   ├── core/
 │   ├── db/
+│   │   └── connection.py
 │   ├── models/
 │   ├── repositories/
 │   ├── schemas/
-│   ├── services/
-│   └── parsing/
-│       ├── __init__.py
-│       ├── models.py
-│       ├── pdf_extractor.py
-│       ├── statement_detector.py
-│       ├── generic_parser.py
-│       ├── parse_validator.py
-│       ├── ai_fallback_parser.py
-│       └── bank_parsers/
-│           ├── __init__.py
-│           ├── base_bank_parser.py
-│           ├── hdfc_credit_card_parser.py
-│           ├── axis_credit_card_parser.py
-│           ├── indusind_credit_card_parser.py
-│           ├── hdfc_savings_parser.py
-│           └── axis_savings_parser.py
+│   │   ├── auth_schema.py
+│   │   ├── health_schema.py
+│   │   └── ingest_schema.py
+│   └── services/
+│       ├── file_storage_service.py
+│       └── health_service.py
 ├── docs/
+│   ├── README.md
+│   ├── PROJECT_REQUIREMENTS.md
 │   ├── LLD.md
-│   └── MVP_ROADMAP.md
+│   ├── MVP_ROADMAP.md
+│   ├── PARSING_STRATEGY.md
+│   ├── LOCAL_IDENTITY_PROVIDER.md
+│   └── LEARNING_GUIDE.md
+├── infra/
+│   ├── db/
+│   │   └── migration/
+│   └── keycloak/
+│       └── local/
+├── scripts/
+│   └── check_coverage.py
+├── tests/
 ├── docker-compose.yml
+├── docker-compose.test.yml
 ├── Dockerfile
 ├── requirements.txt
+├── requirements-dev.txt
+├── ruff.toml
 ├── .env.example
-├── README.md
-└── .gitignore
+└── README.md
+```
+
+Future module additions:
+
+```text
+app/parsing/
+app/ai/
+app/rag/
+app/agents/
 ```
 
 ---
 
-## 7. Configuration Design
+## 8. Configuration Design
 
-All configuration should be loaded from environment variables.
+Configuration is loaded through `app/config.py` using Pydantic Settings.
 
-### Configuration Groups
+Other modules should import the typed `settings` object instead of reading environment variables directly.
 
-#### Application
+### Application configuration
 
 ```text
 APP_NAME
@@ -144,7 +226,7 @@ APP_VERSION
 APP_PORT
 ```
 
-#### Database
+### Database configuration
 
 ```text
 DB_HOST
@@ -154,7 +236,9 @@ DB_USER
 DB_PASSWORD
 ```
 
-#### Authentication
+The application derives a PostgreSQL connection URL from these fields.
+
+### Identity provider / OIDC configuration
 
 ```text
 KEYCLOAK_ADMIN
@@ -165,69 +249,75 @@ OIDC_AUDIENCE
 OIDC_CLIENT_ID
 ```
 
-#### AI
+### AI configuration
 
 ```text
-AI_PROVIDER
 OPENAI_API_KEY
 OPENAI_MODEL
 ```
 
-#### File Storage
+AI is considered enabled only when `OPENAI_API_KEY` is non-blank.
+
+### Storage configuration
 
 ```text
 UPLOAD_DIR
+MAX_UPLOAD_SIZE_BYTES
 STORAGE_TYPE
 ```
 
-Future AWS-related configuration:
+Current storage type:
 
 ```text
-AWS_REGION
-S3_BUCKET_NAME
+local
+```
+
+Future storage type:
+
+```text
+s3
 ```
 
 ---
 
-## 8. Authentication and Authorization Design
+## 9. Authentication and Authorization Design
 
-The backend acts as a **resource server**.
+The backend acts as an OAuth2/OIDC resource server.
 
-It does not handle:
+The backend does not handle:
 
 - User registration
 - Password storage
 - Password reset
 - Login UI
 
-These responsibilities belong to the identity provider.
+Those responsibilities belong to the identity provider.
 
-### Backend Responsibilities
+### Backend responsibilities
 
-- Validate incoming JWT access token
-- Verify token signature
-- Verify issuer
-- Verify audience
-- Extract user identity from token
-- Attach authenticated user context to request
+- Extract bearer token from the request.
+- Fetch and cache JWKS keys.
+- Validate token signature.
+- Verify issuer.
+- Verify audience.
+- Extract authenticated user data.
+- Attach authenticated user context to route handlers.
 
-### User Identifier
+### User identifier rule
 
-The system uses the OIDC `sub` claim as the primary user identifier.
+The backend uses the token `sub` claim as the internal user identifier.
 
 ```text
 user_id = token["sub"]
 ```
 
-### Important Rule
-
-The backend must never accept `user_id` from API request payloads for data ownership.
+The backend must never accept `user_id` from API payloads for ownership decisions.
 
 ---
 
-## 9. OAuth Flow
+## 10. OAuth Flow
 
-The frontend should use **Authorization Code Flow with PKCE**.
+Future frontend should use Authorization Code Flow with PKCE.
 
 ```text
 1. User opens frontend.
@@ -239,166 +329,227 @@ The frontend should use **Authorization Code Flow with PKCE**.
 7. FastAPI validates JWT and extracts user identity.
 ```
 
-Avoid:
+Avoid for user login:
 
 - Implicit flow
-- Password grant
-- Client credentials for user login
+- Password grant in production frontend
+- Client credentials flow for end-user access
+
+Local development may use test-user token generation as documented in [`LOCAL_IDENTITY_PROVIDER.md`](LOCAL_IDENTITY_PROVIDER.md).
 
 ---
 
-## 10. API Layer Design
+## 11. API Layer Design
 
-| Module | Responsibility |
+| Module | Current responsibility |
 |---|---|
-| `health_routes.py` | Health checks |
-| `ingestion_routes.py` | PDF upload and ingestion |
-| `transactions_routes.py` | Transaction listing/filtering |
+| `health_routes.py` | Application and database health APIs |
+| `me_routes.py` | Authenticated user inspection API |
+| `ingest_routes.py` | Authenticated PDF upload API |
+
+Future route modules:
+
+| Planned module | Planned responsibility |
+|---|---|
+| `transaction_routes.py` | Transaction listing and filtering |
 | `summary_routes.py` | Monthly summary APIs |
-| `comparison_routes.py` | Month-on-month comparison |
-| `insights_routes.py` | AI-generated insights |
+| `comparison_routes.py` | Month-on-month comparison APIs |
+| `insight_routes.py` | AI-generated insight APIs |
+| `query_routes.py` | Natural language query APIs |
 
 ---
 
-## 11. API Endpoints
+## 12. Current API Endpoints
 
-### Health
+### `GET /health`
 
-```http
-GET /health
-```
+Returns application health and service metadata.
 
-Response:
+Response shape:
 
 ```json
 {
   "status": "OK",
-  "service": "Spend Analyzer",
-  "environment": "local",
-  "version": "0.1.0"
+  "service": {
+    "name": "Spend Analyzer",
+    "environment": "local",
+    "version": "0.1.0"
+  },
+  "checks": {
+    "application": {
+      "status": "OK",
+      "message": "Application is running",
+      "error": null
+    }
+  }
 }
 ```
 
-### DB Health
+### `GET /health/db`
 
-```http
-GET /health/db
-```
+Returns application metadata and database health check result.
 
-Response:
+Successful database check shape:
 
 ```json
 {
-  "database": "connected"
+  "status": "OK",
+  "service": {
+    "name": "Spend Analyzer",
+    "environment": "local",
+    "version": "0.1.0"
+  },
+  "checks": {
+    "database": {
+      "status": "OK",
+      "message": "Database is reachable",
+      "error": null
+    }
+  }
 }
 ```
 
-### Current User
+### `GET /me`
+
+Requires:
 
 ```http
-GET /me
-Authorization: Bearer <token>
+Authorization: Bearer <access_token>
 ```
 
-Response:
+Response shape:
 
 ```json
 {
   "user_id": "oidc-sub",
-  "email": "user@example.com"
+  "username": "test.user",
+  "email": "test.user@example.com"
 }
 ```
 
-### Ingest Statement
+### `POST /ingest`
+
+Requires:
 
 ```http
-POST /ingest
-Authorization: Bearer <token>
+Authorization: Bearer <access_token>
 Content-Type: multipart/form-data
 ```
 
-Request:
+Request fields:
 
-- `file`: PDF statement
-- `institution`: optional in early MVP, e.g. `hdfc`, `axis`, `indusind`
-- `account_type`: optional in early MVP, e.g. `credit_card`, `savings_account`
-- `account_name`: optional user-friendly account/card name
-- `statement_format`: optional hint when user knows the format
+| Field | Required | Description |
+|---|---:|---|
+| `file` | Yes | PDF statement file |
+| `institution` | No | User-provided institution hint |
+| `account_type` | No | User-provided account type hint |
+| `account_name` | No | User-friendly account/card name |
+| `statement_format` | No | User-provided format hint |
 
-Response:
+Current response shape:
 
 ```json
 {
-  "status": "success",
-  "statement_id": "uuid",
-  "transactions_ingested": 42,
-  "parse_confidence": 0.92,
-  "review_required": false
+  "statement_reference": "generated-uuid",
+  "original_file_name": "statement.pdf",
+  "stored_file_name": "generated-file-name.pdf",
+  "content_type": "application/pdf",
+  "file_size_bytes": 12345,
+  "status": "UPLOADED",
+  "institution": "hdfc",
+  "account_type": "credit_card",
+  "account_name": "HDFC Swiggy",
+  "statement_format": "hdfc_credit_card"
 }
 ```
 
-### Monthly Summary
+Current behavior:
 
-```http
-GET /summary?month=YYYY-MM
-Authorization: Bearer <token>
-```
+- Validates authentication.
+- Validates PDF metadata.
+- Reads file with configured upload-size limit.
+- Rejects oversized uploads with 413.
+- Rejects invalid uploads with 400.
+- Saves the uploaded PDF to local storage.
+- Returns upload metadata.
 
-### Month-on-Month Comparison
+Current limitation:
 
-```http
-GET /comparison?month=YYYY-MM
-Authorization: Bearer <token>
-```
-
-### AI Insights
-
-```http
-GET /insights?month=YYYY-MM
-Authorization: Bearer <token>
-```
+- The endpoint currently saves the file and returns upload metadata.
+- Full statement metadata persistence and parsing pipeline integration are planned follow-up work.
 
 ---
 
-## 12. Data Model
+## 13. Planned API Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /transactions` | List/filter authenticated user transactions |
+| `GET /summary?month=YYYY-MM` | Monthly income/spend/net summary |
+| `GET /comparison?month=YYYY-MM` | Month-on-month comparison |
+| `GET /insights?month=YYYY-MM` | AI-generated explanation from deterministic summaries |
+| `POST /query` | Natural language financial query |
+
+---
+
+## 14. Current Data Model
 
 ### Table: `statements`
 
-Stores uploaded statement metadata.
+Current migration: `infra/db/migration/V2__create_statements_table.sql`.
 
 ```sql
 CREATE TABLE statements (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL,
     institution TEXT,
     account_type TEXT,
     account_name TEXT,
     statement_format TEXT,
-    statement_period_from DATE,
-    statement_period_to DATE,
     original_file_name TEXT NOT NULL,
     stored_file_path TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'UPLOADED',
     parse_confidence NUMERIC(5, 4),
-    review_required BOOLEAN DEFAULT FALSE,
-    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    review_required BOOLEAN NOT NULL DEFAULT FALSE,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT statements_status_check
+        CHECK (status IN ('UPLOADED', 'PARSING', 'PARSED', 'FAILED', 'NEEDS_REVIEW')),
+
+    CONSTRAINT statements_parse_confidence_range_check
+        CHECK (parse_confidence IS NULL OR parse_confidence BETWEEN 0 AND 1),
+
+    CONSTRAINT statements_id_user_id_unique
+        UNIQUE (id, user_id)
 );
+```
+
+Important indexes:
+
+```sql
+CREATE INDEX idx_statements_user_uploaded_at
+    ON statements (user_id, uploaded_at DESC);
+
+CREATE INDEX idx_statements_user_status
+    ON statements (user_id, status);
+
+CREATE INDEX idx_statements_user_review_required
+    ON statements (user_id, review_required);
 ```
 
 ### Table: `transactions`
 
-Stores normalized financial transactions.
+Current migration: `infra/db/migration/V3__create_transactions_table.sql`.
 
 ```sql
 CREATE TABLE transactions (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL,
-    statement_id UUID REFERENCES statements(id),
+    statement_id UUID NOT NULL,
     transaction_date DATE NOT NULL,
     description TEXT NOT NULL,
     merchant TEXT,
-    merchant_category TEXT,
-    category TEXT NOT NULL,
+    category TEXT,
     amount NUMERIC(14, 2) NOT NULL,
     transaction_type TEXT NOT NULL,
     institution TEXT,
@@ -406,83 +557,109 @@ CREATE TABLE transactions (
     account_name TEXT,
     source_parser TEXT,
     confidence_score NUMERIC(5, 4),
-    reference_number TEXT,
-    reward_points INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT transactions_statement_user_fk
+        FOREIGN KEY (statement_id, user_id)
+        REFERENCES statements (id, user_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT transactions_type_check
+        CHECK (transaction_type IN ('debit', 'credit')),
+
+    CONSTRAINT transactions_amount_non_negative_check
+        CHECK (amount >= 0),
+
+    CONSTRAINT transactions_confidence_score_range_check
+        CHECK (confidence_score IS NULL OR confidence_score BETWEEN 0 AND 1)
 );
 ```
 
-### Table: `parser_runs`
-
-Stores parser execution history for debugging and auditability.
-
-```sql
-CREATE TABLE parser_runs (
-    id UUID PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    statement_id UUID REFERENCES statements(id),
-    parser_name TEXT NOT NULL,
-    status TEXT NOT NULL,
-    confidence_score NUMERIC(5, 4),
-    extracted_transaction_count INTEGER DEFAULT 0,
-    warnings TEXT,
-    error_message TEXT,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP
-);
-```
-
-### Indexes
+Important indexes:
 
 ```sql
 CREATE INDEX idx_transactions_user_date
-ON transactions (user_id, transaction_date);
+    ON transactions (user_id, transaction_date DESC);
 
 CREATE INDEX idx_transactions_user_category
-ON transactions (user_id, category);
+    ON transactions (user_id, category);
 
 CREATE INDEX idx_transactions_user_merchant
-ON transactions (user_id, merchant);
+    ON transactions (user_id, merchant);
 
-CREATE INDEX idx_statements_user_status
-ON statements (user_id, status);
+CREATE INDEX idx_transactions_statement_id
+    ON transactions (statement_id);
+
+CREATE INDEX idx_transactions_user_source_parser
+    ON transactions (user_id, source_parser);
 ```
 
----
+### User isolation rule
 
-## 13. Data Isolation Design
-
-Every query must include user filtering.
-
-Example:
+Transactions reference statements using a composite ownership-aware foreign key:
 
 ```sql
-SELECT *
-FROM transactions
-WHERE user_id = :current_user_id;
+FOREIGN KEY (statement_id, user_id)
+REFERENCES statements (id, user_id)
 ```
 
-No endpoint should return data without applying `user_id`.
+This prevents one user transaction from referencing another user's statement.
 
 ---
 
-## 14. Ingestion Flow
+## 15. Current Upload Flow
 
 ```text
 POST /ingest
    |
-   | Validate JWT
    v
-Extract user_id
+Validate JWT
    |
    v
-Validate PDF file
+Extract AuthenticatedUser
    |
    v
-Save file
+Validate PDF filename/content-type metadata
    |
    v
-Create statement record
+Read uploaded file in chunks with size limit
+   |
+   v
+Validate file content as PDF-like content
+   |
+   v
+Generate statement_reference UUID
+   |
+   v
+Save PDF to local upload directory
+   |
+   v
+Return StatementUploadResponse
+```
+
+Current file-storage responsibilities:
+
+- Reject missing/blank filenames.
+- Reject non-PDF extensions.
+- Reject non-PDF content types.
+- Reject empty files.
+- Reject oversized files.
+- Reject fake/non-PDF content.
+- Generate stored filename from user and statement reference.
+- Avoid trusting original file name for storage path identity.
+
+---
+
+## 16. Planned Full Ingestion Flow
+
+```text
+POST /ingest
+   |
+   v
+Upload and store PDF
+   |
+   v
+Create statement metadata record
    |
    v
 Extract PDF text/tables
@@ -498,7 +675,7 @@ Validate parse result
    |
    | confidence low
    v
-Run bank-specific parser if supported
+Run broad bank/account parser if supported
    |
    v
 Validate parse result
@@ -514,90 +691,43 @@ Validate AI candidate transactions
 Persist valid transactions OR mark statement as NEEDS_REVIEW
 ```
 
----
-
-## 15. PDF Extraction Design
-
-### `pdf_extractor.py`
-
-Responsibilities:
-
-- Open PDF file
-- Extract text
-- Extract tables where available
-- Return raw extracted content
-- Avoid logging sensitive statement contents
-
-MVP approach:
-
-- Use deterministic extraction first
-- Handle invalid PDFs gracefully
-- Do not rely only on AI for extraction
+Persistence must happen only after validation.
 
 ---
 
-## 16. Statement Detection Design
+## 17. Parsing Design
 
-### `statement_detector.py`
+Detailed parsing design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
-Responsibilities:
-
-- Detect institution where possible
-- Detect account type where possible
-- Detect broad statement format where possible
-- Use user-supplied hints when present
-
-Known examples:
-
-| Marker | Detected Format |
-|---|---|
-| `Swiggy HDFC Bank Credit Card Statement` | HDFC credit card |
-| `UPI RuPay Credit Card Statement` | HDFC credit card |
-| `Flipkart Axis Bank Credit Card Statement` | Axis credit card |
-| `INDUSIND BANK LEGEND CREDIT CARD STATEMENT` | IndusInd credit card |
-
----
-
-## 17. Transaction Parsing Design
-
-### Parsing strategy
+Summary:
 
 ```text
-Generic Parser → Bank-Specific Parser → AI Fallback Parser → Manual Review
+Generic Parser → Broad Bank/Account Parser → AI Fallback Parser → Manual Review
 ```
 
-### Generic Parser
+Parser granularity should be broad:
 
-The generic parser should identify common transaction patterns:
+```text
+HDFC credit card parser
+Axis credit card parser
+IndusInd credit card parser
+HDFC savings account parser
+Axis savings account parser
+```
 
-- Dates
-- Descriptions
-- Amounts
-- `Dr` / `Cr` suffixes
-- `+` credit indicators
-- Withdrawal/deposit columns in savings statements
+Avoid parser sprawl such as:
 
-### Bank-Specific Parsers
+```text
+HDFC Swiggy parser
+HDFC Millennia parser
+Axis Flipkart parser
+```
 
-Bank-specific parsers should handle broad bank/account quirks, not every individual card variant.
-
-Initial bank parsers:
-
-- `HdfcCreditCardParser`
-- `AxisCreditCardParser`
-- `IndusindCreditCardParser`
-- `HdfcSavingsParser`
-- `AxisSavingsParser`
-
-### AI Fallback Parser
-
-AI fallback should run only when deterministic parsing fails or confidence is low.
-
-AI output must be treated as candidate data and validated before persistence.
+unless there is a proven technical need.
 
 ---
 
-## 18. Parser Result Model
+## 18. Planned Parser Result Model
 
 ```python
 class TransactionCandidate(BaseModel):
@@ -608,11 +738,11 @@ class TransactionCandidate(BaseModel):
     institution: str | None = None
     account_type: Literal["credit_card", "savings_account"] | None = None
     account_name: str | None = None
+    product_name: str | None = None
     merchant: str | None = None
     merchant_category: str | None = None
     category: str | None = None
     reference_number: str | None = None
-    reward_points: int | None = None
     parser_name: str
     confidence_score: float
 ```
@@ -629,41 +759,41 @@ class ParseResult(BaseModel):
 
 ---
 
-## 19. Parse Validation Design
+## 19. Planned Parse Validation Design
 
-### `parse_validator.py`
+Validation responsibilities:
 
-Responsibilities:
+- Validate required fields.
+- Validate dates.
+- Validate decimal amounts.
+- Validate debit/credit direction.
+- Detect duplicate rows.
+- Check transaction dates against statement period when available.
+- Reconcile totals or balances where available.
+- Assign confidence level.
 
-- Validate required fields
-- Validate date format
-- Validate amount format
-- Validate debit/credit type
-- Detect duplicates
-- Check whether transaction dates fall within statement period where possible
-- Reconcile totals where possible
-- Assign confidence level
-
-Confidence levels:
+Confidence policy:
 
 ```text
-HIGH    → safe to persist
-MEDIUM  → persist but flag review_required=true
-LOW     → try next parser or AI fallback
-FAILED  → mark statement as NEEDS_REVIEW or FAILED
+HIGH    → persist transactions
+MEDIUM  → persist valid transactions and mark review_required=true
+LOW     → try next parser layer
+FAILED  → try next parser layer or mark statement NEEDS_REVIEW/FAILED
 ```
+
+AI fallback must not bypass validation.
 
 ---
 
-## 20. Categorization Design
+## 20. Planned Categorization Design
 
-### `categorizer_service.py`
+Rule-based categorization should be implemented first.
 
-Rule-based categorization for MVP.
+Examples:
 
 | Keywords | Category |
 |---|---|
-| swiggy, zomato, restaurant, toit | Food |
+| swiggy, zomato, restaurant | Food |
 | blinkit, instamart, groceries | Groceries |
 | uber, ola, fuel, petrol | Travel/Fuel |
 | amazon, flipkart | Shopping |
@@ -681,210 +811,257 @@ Other
 
 Future:
 
-- AI-assisted categorization fallback
+- AI-assisted category fallback
 - Merchant normalization
 - User-defined category rules
 
 ---
 
-## 21. AI Service Design
+## 21. Repository Layer Design
 
-### `ai_service.py`
+Repository modules should contain database access logic only.
 
-Responsibilities:
+Planned repositories:
 
-- Support GPT provider integration
-- Generate insight explanations
-- Support AI parsing fallback through a dedicated parsing prompt
-- Handle API failures safely
+| Repository | Responsibility |
+|---|---|
+| `statement_repository.py` | Insert statements, update status, fetch statement metadata |
+| `transaction_repository.py` | Insert/query transactions, aggregate by month/category/merchant |
+| `parser_run_repository.py` | Store parser execution attempts and debugging data |
+| `vector_repository.py` | Store/query embeddings in future RAG phase |
 
-AI should not be used for final financial calculations.
+API routes should not contain SQL.
 
----
-
-## 22. Repository Layer Design
-
-Repository modules should contain database logic only.
-
-### `transaction_repository.py`
-
-Responsibilities:
-
-- Insert transactions
-- Query transactions by user/month
-- Aggregate by category
-- Aggregate by merchant
-- Compare monthly totals
-
-### `statement_repository.py`
-
-Responsibilities:
-
-- Insert statement metadata
-- Update ingestion status
-- Fetch statement metadata
-
-### `parser_run_repository.py`
-
-Responsibilities:
-
-- Store parser attempts
-- Store parser status/confidence/errors
-- Support ingestion debugging
+Services should orchestrate business flow and call repositories.
 
 ---
 
-## 23. Error Handling
+## 22. Error Handling
 
 | Scenario | Status |
-|---|---|
+|---|---:|
 | Missing token | 401 |
 | Invalid token | 401 |
 | Invalid file type | 400 |
+| Upload too large | 413 |
+| Invalid PDF content | 400 |
 | PDF extraction failed | 422 |
 | Parsing failed | 422 |
 | Needs manual review | 202 |
-| DB unavailable | 503 |
+| Database unavailable | 503 |
 | Unexpected error | 500 |
 
 Rules:
 
 - Return clear API errors.
-- Do not expose internal stack traces.
+- Do not expose stack traces.
 - Log internal errors.
-- Fail gracefully for bad PDFs.
+- Do not log full statement content.
 - Do not persist low-confidence AI output without validation.
 
 ---
 
-## 24. Logging
-
-MVP logging:
-
-- Console logs are sufficient.
+## 23. Logging and Privacy
 
 Log:
 
-- Request start/end
-- File ingestion result
-- Parser selected
-- Parser confidence
-- Number of parsed transactions
-- DB errors
-- AI fallback errors
+- Request start/end where useful.
+- File ingestion result.
+- Parser selected.
+- Parser confidence.
+- Number of parsed transactions.
+- Database errors.
+- AI fallback failures.
 
 Do not log:
 
-- Access tokens
-- API keys
-- Full sensitive statement content
-- Full PDF text extraction output
+- Access tokens.
+- API keys.
+- Full statement contents.
+- Full PDF extracted text.
+- Sensitive financial data beyond what is required for debugging.
 
 ---
 
-## 25. Security Considerations
+## 24. Security Design
 
-- Never commit `.env`
-- Never log secrets
-- Validate JWT on protected endpoints
-- Always filter DB queries by user_id
-- Validate uploaded file type
-- Restrict upload size
-- Use parameterized SQL
-- Do not use AI for source-of-truth financial calculations
-- Validate AI parsing output before persistence
+- Never commit `.env`.
+- Never log secrets.
+- Validate JWT on protected endpoints.
+- Always filter data by authenticated `user_id`.
+- Validate uploaded file type and content.
+- Restrict upload size with `MAX_UPLOAD_SIZE_BYTES`.
+- Use parameterized SQL.
+- Use ownership-aware foreign keys where possible.
+- Do not use AI for source-of-truth financial calculations.
+- Validate AI output before persistence.
 
 ---
 
-## 26. Analytics Service Design
+## 25. Quality Gates
 
-### `analytics_service.py`
+CI runs on pull requests to `main` and pushes to `main`.
+
+Current quality checks:
+
+```bash
+python -m ruff check --output-format=github .
+python -m ruff format --check .
+python -m bandit -r app
+python -m pip_audit -r requirements.txt
+python -m pip_audit -r requirements-dev.txt
+python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+python scripts/check_coverage.py coverage.json 95 95
+```
+
+Coverage policy:
+
+- Statement/line coverage must be at least 95%.
+- Branch coverage must be at least 95%.
+
+Dependency policy:
+
+- Runtime dependencies live in `requirements.txt`.
+- Test/development dependencies live in `requirements-dev.txt`.
+- Runtime and development dependencies are both audited.
+- No ignored vulnerabilities should be added casually.
+
+Dependabot policy:
+
+- Python dependencies are checked daily.
+- GitHub Actions dependencies are checked weekly.
+
+---
+
+## 26. Planned Analytics Design
+
+`analytics_service.py` should own deterministic calculations.
 
 Responsibilities:
 
-- Calculate monthly totals
-- Calculate category breakdown
-- Calculate income, spend, and net
-- Return structured JSON
+- Calculate monthly totals.
+- Calculate income, spend, and net.
+- Calculate category breakdown.
+- Calculate merchant totals.
+- Handle empty/no-data scenarios.
+- Return structured JSON.
 
-Important:
-
-- All calculations must be done in SQL or backend code.
-- AI must not calculate financial totals.
-
----
-
-## 27. Comparison Service Design
-
-### `comparison_service.py`
-
-Responsibilities:
-
-- Compare current month vs previous month
-- Calculate absolute delta
-- Calculate percentage delta
-- Handle missing previous data safely
-
-Zero baseline rule:
-
-- If previous amount is 0, percentage delta should be null or marked as not applicable.
-
----
-
-## 28. Future RAG Design
-
-RAG will be added after structured analytics are stable.
-
-Future components:
-
-- `embedding_service.py`
-- `vector_repository.py`
-- `rag_service.py`
-
-Rule:
+Important rule:
 
 ```text
-SQL answers numbers.
-RAG explains context.
+SQL/backend calculates. AI explains.
 ```
 
 ---
 
-## 29. Future Frontend Design
+## 27. Planned Comparison Design
 
-Frontend will be developed as a separate application.
+`comparison_service.py` should compare current month against previous month.
 
-Planned screens:
+Responsibilities:
 
-- Login
-- Statement upload
-- Statement review
-- Dashboard
-- Monthly summary
-- Category breakdown
-- Insights
-- Natural language query page
+- Calculate absolute delta.
+- Calculate percentage delta.
+- Handle missing previous month data.
+- Handle divide-by-zero safely.
 
----
+Zero baseline rule:
 
-## 30. Docker Design
-
-Services:
-
-- `app`
-- `db`
-- `identity-provider`
-
-Data persistence:
-
-- PostgreSQL volume
-- Uploaded statement storage volume
-
-App should be configured entirely via environment variables.
+- If previous amount is zero, percentage delta should be `null` or explicitly marked not applicable.
 
 ---
 
-## 31. AWS Readiness
+## 28. Planned AI Service Design
+
+AI access should go through a provider abstraction.
+
+Planned responsibilities:
+
+- Generate structured parser fallback output.
+- Generate insight wording from deterministic facts.
+- Generate category suggestions for unknown merchants.
+- Support retries/timeouts centrally.
+- Support mock AI clients in tests.
+
+AI must not:
+
+- Calculate final financial totals.
+- Execute raw SQL.
+- Persist data directly.
+- Access cross-user data.
+
+---
+
+## 29. Planned RAG Design
+
+RAG should be introduced only after ingestion and analytics are reliable.
+
+Future components:
+
+```text
+chunker.py
+embedding_service.py
+vector_repository.py
+retrieval_service.py
+context_builder.py
+rag_service.py
+```
+
+Rules:
+
+- Every chunk must include `user_id`.
+- Retrieval must filter by `user_id`.
+- SQL provides numbers.
+- RAG provides contextual explanation.
+- AI produces wording from trusted facts and retrieved context.
+
+---
+
+## 30. Planned Controlled Agent Design
+
+Agentic workflows should come after deterministic query APIs and RAG are stable.
+
+Agent rule:
+
+```text
+Agent can call predefined tools only.
+Agent cannot directly access repositories or execute raw SQL.
+```
+
+Example tools:
+
+```text
+get_monthly_summary(user_id, month)
+get_category_breakdown(user_id, month)
+get_top_merchants(user_id, month)
+compare_months(user_id, month)
+retrieve_statement_context(user_id, query)
+generate_insight(summary, comparison, context)
+```
+
+---
+
+## 31. Docker and Local Runtime Design
+
+Local services:
+
+| Service | Responsibility |
+|---|---|
+| `app` | FastAPI backend |
+| `db` | PostgreSQL database |
+| `identity-provider` | Local Keycloak/OIDC provider |
+| `flyway` / migration service | Apply database migrations where configured |
+
+Runtime principles:
+
+- App is configured through environment variables.
+- PostgreSQL uses Docker volume persistence locally.
+- Uploaded statements use local upload storage in local development.
+- Test stack uses `docker-compose.test.yml`.
+
+---
+
+## 32. Cloud Readiness
 
 Future deployment mapping:
 
@@ -893,60 +1070,27 @@ Future deployment mapping:
 | FastAPI container | ECS / EC2 |
 | PostgreSQL | RDS PostgreSQL |
 | Local PDF storage | S3 |
-| Identity provider | Managed or self-hosted OIDC provider |
-| Docker Compose | ECS task definition |
+| Local Keycloak | Managed or self-hosted OIDC provider |
+| Docker Compose | ECS task definitions / IaC |
 
-Storage abstraction should be introduced before AWS deployment.
-
----
-
-## 32. Non-Functional Requirements
-
-### Security
-
-- All user data must be isolated.
-- All protected APIs must require authentication.
-- Secrets must be managed via environment variables.
-
-### Accuracy
-
-- Financial totals must be deterministic.
-- AI must not be used as the source of truth for calculations.
-- AI parsing output must be validated.
-
-### Maintainability
-
-- Services should be modular.
-- Business logic should not live directly inside API handlers.
-- DB queries should be centralized in repositories.
-- Bank-specific parsing should be broad and reusable, not card-specific unless unavoidable.
-
-### Extensibility
-
-The design should support:
-
-- Additional banks
-- Additional account types
-- AI parsing fallback
-- AI categorization
-- RAG
-- Email/SMS ingestion
-- Frontend
-- AWS deployment
+Before AWS deployment, introduce a storage abstraction so local filesystem and S3 can share the same service interface.
 
 ---
 
 ## 33. MVP Completion Criteria
 
-MVP is considered complete when:
+A mature MVP backend should satisfy:
 
-- Backend runs via Docker
-- Authentication is integrated
-- PostgreSQL is connected
-- PDF statement upload works
-- Transactions are parsed and stored
-- Parsing failures do not break ingestion silently
-- Low-confidence parsing can be flagged for review
-- Data is isolated per user
-- Monthly summary API works
-- AI insights API works
+- Backend runs through Docker.
+- Authentication is integrated.
+- PostgreSQL is connected.
+- Database migrations are repeatable.
+- PDF statement upload works.
+- Statement metadata is persisted.
+- Transactions are parsed and stored.
+- Parser failures do not silently corrupt data.
+- Low-confidence parsing can be flagged for review.
+- Data is isolated per user.
+- Monthly summary API works.
+- AI insights are generated from deterministic backend facts.
+- Quality gates pass on every PR and main merge.
