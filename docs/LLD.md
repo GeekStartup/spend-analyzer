@@ -2,20 +2,24 @@
 
 ## 1. Purpose
 
-This document describes the low-level backend design for **Spend Analyzer**.
+This document describes the low-level backend design for Spend Analyzer.
 
-Spend Analyzer is a learning-first, production-style personal finance backend. It currently supports secure local development infrastructure, authenticated APIs, database migrations, and authenticated PDF statement upload. Future MVPs will extend this foundation with PDF extraction, transaction parsing, deterministic analytics, AI fallback parsing, RAG, and controlled agentic workflows.
+It focuses on implementation-level details: modules, configuration, API contracts, database schema, validation rules, error handling, service boundaries, and quality gates.
+
+For high-level architecture diagrams, runtime views, major flows, ERD, AI/RAG overview, and deployment view, see [`HLD.md`](HLD.md).
+
+For parser-specific design, see [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
+
+For learning objectives and issue sequencing, see [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md).
 
 ---
 
 ## 2. Design Status
 
-This LLD separates **implemented design** from **planned design**.
-
 ### Implemented currently
 
 - FastAPI backend application
-- Environment-driven configuration with Pydantic settings
+- Environment-driven configuration with Pydantic Settings
 - PostgreSQL connectivity
 - Flyway database migrations under `infra/db/migration`
 - Local Keycloak/OIDC identity provider setup
@@ -27,7 +31,7 @@ This LLD separates **implemented design** from **planned design**.
 - Local file storage for uploaded PDFs
 - Statement and transaction schema migrations
 - Docker and Docker Compose based local/test runtime
-- Strict CI quality gates: Ruff, Bandit, pip-audit, pytest, line coverage, and branch coverage
+- Strict CI quality gates
 
 ### Planned later
 
@@ -49,155 +53,33 @@ This LLD separates **implemented design** from **planned design**.
 
 ---
 
-## 3. Scope
+## 3. Repository Structure
 
-This document covers:
-
-- Backend module structure
-- Configuration design
-- Authentication and authorization design
-- Current API design
-- Current database schema
-- Current ingestion/upload design
-- Planned parsing, analytics, AI, RAG, and agentic design
-- Security and quality-gate rules
-- Docker/local runtime design
-
-For detailed parser-specific decisions, use [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
-
-For learning objectives and learning phase sequencing, use [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md).
-
-For product requirements, use [`PROJECT_REQUIREMENTS.md`](PROJECT_REQUIREMENTS.md).
-
----
-
-## 4. System Context
+Current backend structure:
 
 ```text
-Client / API Caller
-    |
-    | HTTP API requests
-    v
-FastAPI Backend
-    |
-    | Validate JWT access token
-    v
-OIDC Identity Provider / Keycloak
-    |
-    | Authenticated user context
-    v
-Application Services
-    |
-    | Read/write
-    v
-PostgreSQL + Local File Storage
-```
-
-Future AI/RAG extension:
-
-```text
-Application Services
-    |
-    | Controlled calls only
-    v
-AI Provider / Embedding Provider / Vector Store
-```
-
----
-
-## 5. Core Design Principles
-
-- Keep authentication externalized through an OIDC identity provider.
-- Backend acts as a resource server.
-- Never trust client-provided `user_id`.
-- Always derive `user_id` from the validated JWT.
-- Store financial data in PostgreSQL.
-- Use SQL/backend logic for calculations.
-- Use generic parsing first, broad bank/account parsing second, and AI fallback only when deterministic parsing fails or confidence is low.
-- Treat AI output as candidate data only.
-- Validate parsed transactions before persistence.
-- Do not silently persist low-confidence output.
-- Keep modules small and independently testable.
-- Make environment-specific values configurable.
-- Avoid hardcoded secrets.
-- Prefer learning-friendly code that is explicit and easy to explain.
-
----
-
-## 6. Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Backend API | Python, FastAPI |
-| Configuration | Pydantic Settings |
-| Database | PostgreSQL |
-| Migration tool | Flyway |
-| Authentication | OAuth2 / OIDC, Keycloak locally |
-| Containerization | Docker, Docker Compose |
-| File upload | FastAPI multipart upload |
-| Local storage | Local filesystem upload directory |
-| Quality gates | Ruff, Bandit, pip-audit, pytest, pytest-cov |
-| Future PDF extraction | pdfplumber or equivalent extractor |
-| Future AI provider | OpenAI-compatible provider abstraction |
-| Future RAG | pgvector / vector search |
-| Future frontend | React / Vite |
-
----
-
-## 7. Repository Structure
-
-```text
-spend-analyzer/
-├── .github/
-│   ├── dependabot.yml
-│   └── workflows/
-│       └── build.yml
-├── app/
-│   ├── main.py
-│   ├── config.py
-│   ├── api/
-│   │   ├── health_routes.py
-│   │   ├── ingest_routes.py
-│   │   └── me_routes.py
-│   ├── auth/
-│   │   ├── dependencies.py
-│   │   └── jwt_validator.py
-│   ├── core/
-│   ├── db/
-│   │   └── connection.py
-│   ├── models/
-│   ├── repositories/
-│   ├── schemas/
-│   │   ├── auth_schema.py
-│   │   ├── health_schema.py
-│   │   └── ingest_schema.py
-│   └── services/
-│       ├── file_storage_service.py
-│       └── health_service.py
-├── docs/
-│   ├── README.md
-│   ├── PROJECT_REQUIREMENTS.md
-│   ├── LLD.md
-│   ├── MVP_ROADMAP.md
-│   ├── PARSING_STRATEGY.md
-│   ├── LOCAL_IDENTITY_PROVIDER.md
-│   └── LEARNING_GUIDE.md
-├── infra/
-│   ├── db/
-│   │   └── migration/
-│   └── keycloak/
-│       └── local/
-├── scripts/
-│   └── check_coverage.py
-├── tests/
-├── docker-compose.yml
-├── docker-compose.test.yml
-├── Dockerfile
-├── requirements.txt
-├── requirements-dev.txt
-├── ruff.toml
-├── .env.example
-└── README.md
+app/
+├── main.py
+├── config.py
+├── api/
+│   ├── health_routes.py
+│   ├── ingest_routes.py
+│   └── me_routes.py
+├── auth/
+│   ├── dependencies.py
+│   └── jwt_validator.py
+├── core/
+├── db/
+│   └── connection.py
+├── models/
+├── repositories/
+├── schemas/
+│   ├── auth_schema.py
+│   ├── health_schema.py
+│   └── ingest_schema.py
+└── services/
+    ├── file_storage_service.py
+    └── health_service.py
 ```
 
 Future module additions:
@@ -211,7 +93,7 @@ app/agents/
 
 ---
 
-## 8. Configuration Design
+## 4. Configuration Design
 
 Configuration is loaded through `app/config.py` using Pydantic Settings.
 
@@ -280,7 +162,7 @@ s3
 
 ---
 
-## 9. Authentication and Authorization Design
+## 5. Authentication and Authorization Design
 
 The backend acts as an OAuth2/OIDC resource server.
 
@@ -315,31 +197,7 @@ The backend must never accept `user_id` from API payloads for ownership decision
 
 ---
 
-## 10. OAuth Flow
-
-Future frontend should use Authorization Code Flow with PKCE.
-
-```text
-1. User opens frontend.
-2. Frontend redirects user to identity provider login.
-3. User logs in.
-4. Identity provider redirects back with authorization code.
-5. Frontend exchanges code + PKCE verifier for tokens.
-6. Frontend calls FastAPI using Authorization: Bearer <access_token>.
-7. FastAPI validates JWT and extracts user identity.
-```
-
-Avoid for user login:
-
-- Implicit flow
-- Password grant in production frontend
-- Client credentials flow for end-user access
-
-Local development may use test-user token generation as documented in [`LOCAL_IDENTITY_PROVIDER.md`](LOCAL_IDENTITY_PROVIDER.md).
-
----
-
-## 11. API Layer Design
+## 6. API Layer Design
 
 | Module | Current responsibility |
 |---|---|
@@ -359,7 +217,7 @@ Future route modules:
 
 ---
 
-## 12. Current API Endpoints
+## 7. Current API Endpoints
 
 ### `GET /health`
 
@@ -411,11 +269,7 @@ Successful database check shape:
 
 ### `GET /me`
 
-Requires:
-
-```http
-Authorization: Bearer <access_token>
-```
+Requires a valid bearer token.
 
 Response shape:
 
@@ -429,12 +283,7 @@ Response shape:
 
 ### `POST /ingest`
 
-Requires:
-
-```http
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-```
+Requires a valid bearer token and `multipart/form-data`.
 
 Request fields:
 
@@ -480,19 +329,7 @@ Current limitation:
 
 ---
 
-## 13. Planned API Endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /transactions` | List/filter authenticated user transactions |
-| `GET /summary?month=YYYY-MM` | Monthly income/spend/net summary |
-| `GET /comparison?month=YYYY-MM` | Month-on-month comparison |
-| `GET /insights?month=YYYY-MM` | AI-generated explanation from deterministic summaries |
-| `POST /query` | Natural language financial query |
-
----
-
-## 14. Current Data Model
+## 8. Current Database Schema
 
 ### Table: `statements`
 
@@ -603,11 +440,13 @@ FOREIGN KEY (statement_id, user_id)
 REFERENCES statements (id, user_id)
 ```
 
-This prevents one user transaction from referencing another user's statement.
+This prevents one user's transaction from referencing another user's statement.
 
 ---
 
-## 15. Current Upload Flow
+## 9. Current Upload Implementation
+
+Current upload flow details:
 
 ```text
 POST /ingest
@@ -648,86 +487,33 @@ Current file-storage responsibilities:
 - Generate stored filename from user and statement reference.
 - Avoid trusting original file name for storage path identity.
 
+The high-level upload sequence diagram is maintained in [`HLD.md`](HLD.md).
+
 ---
 
-## 16. Planned Full Ingestion Flow
+## 10. Planned Full Ingestion Implementation
 
-```text
-POST /ingest
-   |
-   v
-Upload and store PDF
-   |
-   v
-Create statement metadata record
-   |
-   v
-Extract PDF text/tables
-   |
-   v
-Detect statement metadata where possible
-   |
-   v
-Run generic parser
-   |
-   v
-Validate parse result
-   |
-   | confidence low
-   v
-Run broad bank/account parser if supported
-   |
-   v
-Validate parse result
-   |
-   | confidence still low
-   v
-Run AI fallback parser
-   |
-   v
-Validate AI candidate transactions
-   |
-   v
-Persist valid transactions OR mark statement as NEEDS_REVIEW
-```
+Planned implementation steps:
+
+1. Upload and store PDF.
+2. Create statement metadata record.
+3. Extract PDF text/tables.
+4. Detect statement metadata where possible.
+5. Run generic parser.
+6. Validate parse result.
+7. Run broad bank/account parser if generic confidence is low.
+8. Validate parse result.
+9. Run AI fallback parser if deterministic confidence remains low.
+10. Validate AI candidate transactions.
+11. Persist valid transactions or mark statement as `NEEDS_REVIEW`.
 
 Persistence must happen only after validation.
 
----
-
-## 17. Parsing Design
-
-Detailed parsing design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
-
-Summary:
-
-```text
-Generic Parser → Broad Bank/Account Parser → AI Fallback Parser → Manual Review
-```
-
-Parser granularity should be broad:
-
-```text
-HDFC credit card parser
-Axis credit card parser
-IndusInd credit card parser
-HDFC savings account parser
-Axis savings account parser
-```
-
-Avoid parser sprawl such as:
-
-```text
-HDFC Swiggy parser
-HDFC Millennia parser
-Axis Flipkart parser
-```
-
-unless there is a proven technical need.
+Detailed parser design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
-## 18. Planned Parser Result Model
+## 11. Planned Parser Result Model
 
 ```python
 class TransactionCandidate(BaseModel):
@@ -759,7 +545,7 @@ class ParseResult(BaseModel):
 
 ---
 
-## 19. Planned Parse Validation Design
+## 12. Planned Parse Validation Design
 
 Validation responsibilities:
 
@@ -775,17 +561,17 @@ Validation responsibilities:
 Confidence policy:
 
 ```text
-HIGH    → persist transactions
-MEDIUM  → persist valid transactions and mark review_required=true
-LOW     → try next parser layer
-FAILED  → try next parser layer or mark statement NEEDS_REVIEW/FAILED
+HIGH    -> persist transactions
+MEDIUM  -> persist valid transactions and mark review_required=true
+LOW     -> try next parser layer
+FAILED  -> try next parser layer or mark statement NEEDS_REVIEW/FAILED
 ```
 
 AI fallback must not bypass validation.
 
 ---
 
-## 20. Planned Categorization Design
+## 13. Planned Categorization Design
 
 Rule-based categorization should be implemented first.
 
@@ -817,7 +603,7 @@ Future:
 
 ---
 
-## 21. Repository Layer Design
+## 14. Repository Layer Design
 
 Repository modules should contain database access logic only.
 
@@ -836,7 +622,7 @@ Services should orchestrate business flow and call repositories.
 
 ---
 
-## 22. Error Handling
+## 15. Error Handling
 
 | Scenario | Status |
 |---|---:|
@@ -861,7 +647,7 @@ Rules:
 
 ---
 
-## 23. Logging and Privacy
+## 16. Logging and Privacy
 
 Log:
 
@@ -883,7 +669,7 @@ Do not log:
 
 ---
 
-## 24. Security Design
+## 17. Security Design
 
 - Never commit `.env`.
 - Never log secrets.
@@ -898,7 +684,7 @@ Do not log:
 
 ---
 
-## 25. Quality Gates
+## 18. Quality Gates
 
 CI runs on pull requests to `main` and pushes to `main`.
 
@@ -933,7 +719,7 @@ Dependabot policy:
 
 ---
 
-## 26. Planned Analytics Design
+## 19. Planned Analytics Design
 
 `analytics_service.py` should own deterministic calculations.
 
@@ -954,130 +740,24 @@ SQL/backend calculates. AI explains.
 
 ---
 
-## 27. Planned Comparison Design
+## 20. Planned AI, RAG, and Agent Design
 
-`comparison_service.py` should compare current month against previous month.
+Detailed high-level AI/RAG/agent flows are maintained in [`HLD.md`](HLD.md).
 
-Responsibilities:
+Implementation rules for future modules:
 
-- Calculate absolute delta.
-- Calculate percentage delta.
-- Handle missing previous month data.
-- Handle divide-by-zero safely.
-
-Zero baseline rule:
-
-- If previous amount is zero, percentage delta should be `null` or explicitly marked not applicable.
-
----
-
-## 28. Planned AI Service Design
-
-AI access should go through a provider abstraction.
-
-Planned responsibilities:
-
-- Generate structured parser fallback output.
-- Generate insight wording from deterministic facts.
-- Generate category suggestions for unknown merchants.
-- Support retries/timeouts centrally.
-- Support mock AI clients in tests.
-
-AI must not:
-
-- Calculate final financial totals.
-- Execute raw SQL.
-- Persist data directly.
-- Access cross-user data.
-
----
-
-## 29. Planned RAG Design
-
-RAG should be introduced only after ingestion and analytics are reliable.
-
-Future components:
-
-```text
-chunker.py
-embedding_service.py
-vector_repository.py
-retrieval_service.py
-context_builder.py
-rag_service.py
-```
-
-Rules:
-
-- Every chunk must include `user_id`.
+- AI access should go through a provider abstraction.
+- AI output must be validated with structured schemas.
+- RAG chunks must include `user_id`.
 - Retrieval must filter by `user_id`.
-- SQL provides numbers.
-- RAG provides contextual explanation.
-- AI produces wording from trusted facts and retrieved context.
+- SQL/backend tools provide financial numbers.
+- AI generates wording from trusted facts and retrieved context.
+- Agents can call predefined tools only.
+- Agents cannot directly access repositories or execute arbitrary SQL.
 
 ---
 
-## 30. Planned Controlled Agent Design
-
-Agentic workflows should come after deterministic query APIs and RAG are stable.
-
-Agent rule:
-
-```text
-Agent can call predefined tools only.
-Agent cannot directly access repositories or execute raw SQL.
-```
-
-Example tools:
-
-```text
-get_monthly_summary(user_id, month)
-get_category_breakdown(user_id, month)
-get_top_merchants(user_id, month)
-compare_months(user_id, month)
-retrieve_statement_context(user_id, query)
-generate_insight(summary, comparison, context)
-```
-
----
-
-## 31. Docker and Local Runtime Design
-
-Local services:
-
-| Service | Responsibility |
-|---|---|
-| `app` | FastAPI backend |
-| `db` | PostgreSQL database |
-| `identity-provider` | Local Keycloak/OIDC provider |
-| `flyway` / migration service | Apply database migrations where configured |
-
-Runtime principles:
-
-- App is configured through environment variables.
-- PostgreSQL uses Docker volume persistence locally.
-- Uploaded statements use local upload storage in local development.
-- Test stack uses `docker-compose.test.yml`.
-
----
-
-## 32. Cloud Readiness
-
-Future deployment mapping:
-
-| Local Component | AWS Equivalent |
-|---|---|
-| FastAPI container | ECS / EC2 |
-| PostgreSQL | RDS PostgreSQL |
-| Local PDF storage | S3 |
-| Local Keycloak | Managed or self-hosted OIDC provider |
-| Docker Compose | ECS task definitions / IaC |
-
-Before AWS deployment, introduce a storage abstraction so local filesystem and S3 can share the same service interface.
-
----
-
-## 33. MVP Completion Criteria
+## 21. MVP Completion Criteria
 
 A mature MVP backend should satisfy:
 
