@@ -1,6 +1,5 @@
-# Spend Analyzer
+# Spend Analyzer [![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml?query=branch%3Amain)
 
-[![Build](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/GeekStartup/spend-analyzer/actions/workflows/build.yml?query=branch%3Amain)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-green)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue)
