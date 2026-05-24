@@ -14,7 +14,7 @@ This directory contains project-level documentation. Each file has a distinct pu
 
 ## Documentation Rules
 
-- Keep `README.md` at the repository root focused on quickstart and project overview.
+- Keep `README.md` at the repository root as a short landing page that points to this documentation index.
 - Keep requirements in `PROJECT_REQUIREMENTS.md`.
 - Keep high-level architecture, major flows, and diagrams in `HLD.md`.
 - Keep implementation-level design in `LLD.md`.
