@@ -16,25 +16,42 @@ class FileStorageError(Exception):
     """
 
 
-def validate_pdf_upload(
-    file: UploadFile,
-    content: bytes,
-    max_upload_size_bytes: int,
-) -> None:
+class UploadTooLargeError(FileStorageError):
+    """
+    Raised when uploaded file exceeds the configured maximum size.
+    """
+
+
+def normalize_content_type(content_type: str | None) -> str:
+    if not content_type:
+        return ""
+
+    return content_type.split(";", maxsplit=1)[0].strip().lower()
+
+
+def validate_pdf_metadata(file: UploadFile) -> None:
     if not file.filename:
         raise FileStorageError("Uploaded file name is required")
 
     if not file.filename.lower().endswith(PDF_EXTENSION):
         raise FileStorageError("Only PDF files are allowed")
 
-    if file.content_type not in PDF_CONTENT_TYPES:
+    if normalize_content_type(file.content_type) not in PDF_CONTENT_TYPES:
         raise FileStorageError("Only PDF files are allowed")
+
+
+def validate_pdf_upload(
+    file: UploadFile,
+    content: bytes,
+    max_upload_size_bytes: int,
+) -> None:
+    validate_pdf_metadata(file)
 
     if not content:
         raise FileStorageError("Uploaded file must not be empty")
 
     if len(content) > max_upload_size_bytes:
-        raise FileStorageError("Uploaded file exceeds maximum allowed size")
+        raise UploadTooLargeError("Uploaded file exceeds maximum allowed size")
 
     if not content.startswith(PDF_SIGNATURE):
         raise FileStorageError("Uploaded file content is not a valid PDF")
