@@ -9,7 +9,7 @@ This directory contains project-level documentation. Each file has a distinct pu
 | [`MVP_ROADMAP.md`](MVP_ROADMAP.md) | MVP phases, issue breakdown, build order, and delivery plan |
 | [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md) | Detailed parsing strategy for generic, bank/account-specific, AI fallback, and manual review flows |
 | [`LOCAL_IDENTITY_PROVIDER.md`](LOCAL_IDENTITY_PROVIDER.md) | Local Keycloak/OIDC setup, token generation, realm import, and test URLs |
-| [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md) | Learning-first engineering guide covering Python, backend, AI, RAG, agents, phases, and issue-quality expectations |
+| [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md) | Source of truth for learning objectives, learning phase sequencing, issue-quality expectations, and Python/backend/AI/RAG/agent learning guidance |
 
 ## Documentation Rules
 
@@ -20,8 +20,8 @@ This directory contains project-level documentation. Each file has a distinct pu
 - Keep operational setup details in focused runbooks such as `LOCAL_IDENTITY_PROVIDER.md`.
 - Keep learning objectives and sequencing in `LEARNING_GUIDE.md`.
 
-## Deprecated Documents
+## Legacy Documents
 
 `LEARNING_FIRST_DESIGN.md` has been merged into `LEARNING_GUIDE.md` and removed.
 
-`LEARNING_TASK_PLAN.md` should also be removed or reduced to a redirect stub because its content is now represented in `LEARNING_GUIDE.md`. The automated connector blocked that file update, so this is called out in the PR notes.
+`LEARNING_TASK_PLAN.md` is legacy content. Use `LEARNING_GUIDE.md` as the source of truth for learning-oriented planning going forward.
