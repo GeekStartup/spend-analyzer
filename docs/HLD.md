@@ -4,7 +4,7 @@
 
 This document describes the high-level architecture of Spend Analyzer.
 
-The HLD explains the major system components, their responsibilities, runtime relationships, and important end-to-end flows. Detailed module-level behavior belongs in [`LLD.md`](LLD.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
+The HLD explains the major system components, runtime relationships, system boundaries, and important end-to-end flows. Detailed module-level behavior belongs in [`LLD.md`](LLD.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
@@ -143,7 +143,7 @@ sequenceDiagram
     User->>Client: Open app / API client
     Client->>IdP: Authenticate user
     IdP-->>Client: Access token
-    Client->>API: Request with Authorization: Bearer token
+    Client->>API: API request with bearer token
     API->>IdP: Fetch JWKS if not cached
     IdP-->>API: Public signing keys
     API->>API: Validate signature, issuer, audience
@@ -170,32 +170,26 @@ sequenceDiagram
     participant Storage as File storage service
     participant Disk as Local upload storage
 
-    Client->>API: POST /ingest with PDF + optional metadata
+    Client->>API: POST /ingest with PDF + optional metadata hints
     API->>Auth: Validate bearer token
-    Auth-->>API: AuthenticatedUser
+    Auth-->>API: Authenticated user context
     API->>API: Validate filename and content type
     API->>API: Read file in chunks with size limit
     API->>Storage: Save validated PDF
     Storage->>Disk: Write generated stored file name
     Disk-->>Storage: Stored file path
     Storage-->>API: Stored file name and path
-    API-->>Client: StatementUploadResponse
+    API-->>Client: Upload metadata response
 ```
 
-Current upload response includes:
+Current behavior:
 
-- `statement_reference`
-- `original_file_name`
-- `stored_file_name`
-- `content_type`
-- `file_size_bytes`
-- `status`
-- optional metadata fields
-
-Current limitation:
-
-- The current API saves the file and returns upload metadata.
+- The API authenticates the caller.
+- The API validates and stores a PDF statement.
+- The API returns upload metadata.
 - Statement metadata persistence and parsing integration are planned next steps.
+
+For the exact API contract, request fields, response shape, and status-code behavior, see [`LLD.md`](LLD.md).
 
 ---
 
@@ -225,6 +219,8 @@ Design rules:
 - Bank/account parser should be broad, not card-product-specific, unless necessary.
 - AI fallback is candidate extraction only.
 - Backend validation decides whether data can be persisted.
+
+Detailed parser design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
@@ -275,6 +271,8 @@ transactions(statement_id, user_id) references statements(id, user_id)
 ```
 
 This prevents a transaction for one user from referencing another user's statement.
+
+Detailed table definitions, constraints, and indexes are maintained in [`LLD.md`](LLD.md).
 
 ---
 
