@@ -1,0 +1,510 @@
+{
+  "info": {
+    "_postman_id": "538a7ee2-0f26-4995-b63a-77baa9bc24c5",
+    "name": "Spend Analyser",
+    "description": "Local smoke-test collection for Spend Analyzer.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Application health is OK', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('OK');",
+              "  pm.expect(json.service.name).to.eql('Spend Analyzer');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_base_url}}/health",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "DB Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Database health is OK', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('OK');",
+              "  pm.expect(json.checks.database.status).to.eql('OK');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_base_url}}/health/db",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "health",
+            "db"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Docs",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Swagger UI HTML is returned', function () {",
+              "  pm.expect(pm.response.text()).to.include('swagger-ui');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_base_url}}/docs",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "docs"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "OpenAPI",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('OpenAPI document is returned', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.openapi).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.info.title).to.be.a('string').and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{api_base_url}}/openapi.json",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "openapi.json"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const json = pm.response.json();",
+              "",
+              "pm.test('Response contains access_token', function () {",
+              "  pm.expect(json.access_token).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "pm.test('Response contains bearer token type', function () {",
+              "  pm.expect(json.token_type.toLowerCase()).to.eql('bearer');",
+              "});",
+              "",
+              "pm.environment.set('access_token', json.access_token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "password",
+              "type": "text"
+            },
+            {
+              "key": "client_id",
+              "value": "{{client_id}}",
+              "type": "text"
+            },
+            {
+              "key": "username",
+              "value": "{{username}}",
+              "type": "text"
+            },
+            {
+              "key": "password",
+              "value": "{{password}}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{idp_base_url}}/realms/{{realm}}/protocol/openid-connect/token",
+          "host": [
+            "{{idp_base_url}}"
+          ],
+          "path": [
+            "realms",
+            "{{realm}}",
+            "protocol",
+            "openid-connect",
+            "token"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Me",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Authenticated user is test.user', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.user_id).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.username).to.eql('test.user');",
+              "  pm.expect(json.email).to.eql('test.user@example.com');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/me",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "me"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Ingest",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 201', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test('Upload response has expected fields', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.statement_reference).to.be.a('string').and.not.empty;",
+              "  pm.expect(json.original_file_name).to.eql('sample-statement.pdf');",
+              "  pm.expect(json.stored_file_name).to.match(/\\.pdf$/);",
+              "  pm.expect(json.content_type).to.eql('application/pdf');",
+              "  pm.expect(json.file_size_bytes).to.be.above(0);",
+              "  pm.expect(json.status).to.eql('UPLOADED');",
+              "  pm.expect(json.institution).to.eql('hdfc');",
+              "  pm.expect(json.account_type).to.eql('credit_card');",
+              "  pm.expect(json.account_name).to.eql('HDFC Test Card');",
+              "  pm.expect(json.statement_format).to.eql('hdfc_credit_card');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "type": "file",
+              "contentType": "application/pdf",
+              "key": "file",
+              "src": "docs/postman/files/sample-statement.pdf"
+            },
+            {
+              "type": "text",
+              "key": "institution",
+              "value": "hdfc"
+            },
+            {
+              "type": "text",
+              "key": "account_type",
+              "value": "credit_card"
+            },
+            {
+              "type": "text",
+              "key": "account_name",
+              "value": "HDFC Test Card"
+            },
+            {
+              "type": "text",
+              "key": "statement_format",
+              "value": "hdfc_credit_card"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{api_base_url}}/ingest",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "ingest"
+          ]
+        },
+        "description": "If Postman cannot resolve the relative file path, manually select docs/postman/files/sample-statement.pdf."
+      },
+      "response": []
+    },
+    {
+      "name": "Negative Tests",
+      "item": [
+        {
+          "name": "Me - Missing Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Missing token is rejected', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_base_url}}/me",
+              "host": [
+                "{{api_base_url}}"
+              ],
+              "path": [
+                "me"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest - Missing Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Missing token is rejected', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Error says not authenticated', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.detail).to.eql('Not authenticated');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "type": "file",
+                  "contentType": "application/pdf",
+                  "key": "file",
+                  "src": "docs/postman/files/sample-statement.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{api_base_url}}/ingest",
+              "host": [
+                "{{api_base_url}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "description": "If Postman cannot resolve the relative file path, manually select docs/postman/files/sample-statement.pdf."
+          },
+          "response": []
+        },
+        {
+          "name": "Ingest - Invalid PDF Content",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Invalid PDF content is rejected', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('Error identifies invalid PDF content', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.detail).to.eql('Uploaded file content is not a valid PDF');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "type": "file",
+                  "contentType": "application/pdf",
+                  "key": "file",
+                  "src": "docs/postman/files/invalid-sample-statement.pdf"
+                },
+                {
+                  "type": "text",
+                  "key": "institution",
+                  "value": "hdfc"
+                },
+                {
+                  "type": "text",
+                  "key": "account_type",
+                  "value": "credit_card"
+                },
+                {
+                  "type": "text",
+                  "key": "account_name",
+                  "value": "HDFC Test Card"
+                },
+                {
+                  "type": "text",
+                  "key": "statement_format",
+                  "value": "hdfc_credit_card"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{api_base_url}}/ingest",
+              "host": [
+                "{{api_base_url}}"
+              ],
+              "path": [
+                "ingest"
+              ]
+            },
+            "description": "Run Token first. If Postman cannot resolve the relative file path, manually select docs/postman/files/invalid-sample-statement.pdf."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
