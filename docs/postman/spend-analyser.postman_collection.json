@@ -260,7 +260,7 @@
                   "  const json = pm.response.json();",
                   "  pm.expect(json.statement_reference).to.be.a('string').and.not.empty;",
                   "  pm.expect(json.original_file_name).to.eql('sample-statement.pdf');",
-                  "  pm.expect(json.stored_file_name).to.match(/\\\\.pdf$/);",
+                  "  pm.expect(json.stored_file_name).to.match(/\\.pdf$/);",
                   "  pm.expect(json.content_type).to.eql('application/pdf');",
                   "  pm.expect(json.file_size_bytes).to.be.above(0);",
                   "  pm.expect(json.status).to.eql('UPLOADED');",
