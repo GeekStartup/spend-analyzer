@@ -6,7 +6,7 @@ This directory contains a sanitized Postman collection, a local environment temp
 
 | Path | Purpose |
 |---|---|
-| `spend-analyser.postman_collection.json` | Postman collection for local health, auth, and ingestion smoke tests |
+| `spend-analyser.postman_collection.json` | Postman collection for local health, docs, auth, and ingestion smoke tests |
 | `spend-analyser-local.postman_environment.json` | Local Postman environment template with no committed token |
 | `files/sample-statement.pdf` | Valid dummy PDF statement for positive `/ingest` testing |
 | `files/invalid-sample-statement.pdf` | Invalid `.pdf` file for negative `/ingest` validation testing |
@@ -26,6 +26,8 @@ Confirm the local API and identity provider are reachable:
 ```text
 http://localhost:8000/health
 http://localhost:8000/health/db
+http://localhost:8000/docs
+http://localhost:8000/openapi.json
 http://localhost:8080/realms/spend-analyzer/.well-known/openid-configuration
 ```
 
@@ -52,14 +54,16 @@ Do not commit exported environments that contain a real `access_token`.
 
 ## Run order
 
-Run the requests in this order:
+Run the `Local` folder requests in this order:
 
 ```text
 1. Health
 2. DB Health
-3. Token
-4. Me
-5. Ingest
+3. Docs
+4. OpenAPI
+5. Token
+6. Me
+7. Ingest
 ```
 
 The `Token` request stores the returned token into the `access_token` environment variable. The `Me` and `Ingest` requests use that token automatically.
@@ -89,7 +93,7 @@ content_type = application/pdf
 
 ## Negative tests
 
-The collection also includes negative tests:
+The collection also includes a `Negative Tests` folder:
 
 | Request | Expected result |
 |---|---|
