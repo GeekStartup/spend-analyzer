@@ -54,7 +54,7 @@ Do not commit exported environments that contain a real `access_token`.
 
 ## Run order
 
-Run the `Local` folder requests in this order:
+Run these requests in order:
 
 ```text
 1. Health
@@ -76,11 +76,7 @@ The `Ingest` request uses the file form-data field:
 file = docs/postman/files/sample-statement.pdf
 ```
 
-If Postman does not resolve the relative path after import, manually select:
-
-```text
-docs/postman/files/sample-statement.pdf
-```
+If Postman does not resolve the relative path after import, manually select the same file manually from the repository checkout.
 
 Expected successful `/ingest` result:
 
@@ -93,28 +89,8 @@ content_type = application/pdf
 
 ## Negative tests
 
-The collection also includes a `Negative Tests` folder:
-
-| Request | Expected result |
-|---|---|
-| `Me - Missing Token` | `401 Unauthorized` |
-| `Ingest - Missing Token` | `401 Unauthorized` |
-| `Ingest - Invalid PDF Content` | `400 Bad Request` |
-
-For `Ingest - Invalid PDF Content`, attach:
-
-```text
-docs/postman/files/invalid-sample-statement.pdf
-```
-
-Expected response:
-
-```json
-{
-  "detail": "Uploaded file content is not a valid PDF"
-}
-```
+The collection also includes a `Negative Tests` folder for missing-token and invalid-file scenarios.
 
 ## Notes
 
-Postman pre-request scripts cannot attach an in-memory generated file to a multipart `file` field. The collection therefore uses checked-in local fixture files.
+Postman cannot attach generated in-memory content to a multipart file field. The collection therefore uses checked-in local fixture files.
