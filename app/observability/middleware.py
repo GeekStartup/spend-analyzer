@@ -2,7 +2,9 @@ from time import perf_counter
 from uuid import uuid4
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 from app.observability.context import bind_request_context, clear_request_context
 from app.observability.logging import get_logger
@@ -24,11 +26,15 @@ def _get_route_path(request: Request) -> str:
     return "unmatched"
 
 
-def _should_log_request(route_path: str) -> bool:
-    return route_path != METRICS_ROUTE_PATH
+def _should_log_request(route_path: str, metrics_path: str) -> bool:
+    return route_path != metrics_path
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp, metrics_path: str = METRICS_ROUTE_PATH) -> None:
+        super().__init__(app)
+        self.metrics_path = metrics_path
+
     async def dispatch(
         self,
         request: Request,
@@ -60,14 +66,18 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 exception_type=type(exc).__name__,
             )
 
-            raise
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal Server Error"},
+                headers={REQUEST_ID_HEADER: request_id},
+            )
         else:
             duration_ms = round((perf_counter() - started_at) * 1000, 2)
             route_path = _get_route_path(request)
 
             response.headers[REQUEST_ID_HEADER] = request_id
 
-            if _should_log_request(route_path):
+            if _should_log_request(route_path, self.metrics_path):
                 logger.info(
                     "http.request",
                     method=request.method,
