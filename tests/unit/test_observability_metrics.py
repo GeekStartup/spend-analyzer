@@ -13,8 +13,14 @@ def get_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
     return 0.0
 
 
-def test_configure_http_metrics_does_nothing_when_disabled():
+def test_configure_http_metrics_does_nothing_when_disabled(monkeypatch):
     app = FastAPI()
+
+    class FailingInstrumentator:
+        def __init__(self, **kwargs):
+            raise AssertionError("Instrumentator should not be created")
+
+    monkeypatch.setattr(metrics, "Instrumentator", FailingInstrumentator)
 
     metrics.configure_http_metrics(
         app,
@@ -27,8 +33,30 @@ def test_configure_http_metrics_does_nothing_when_disabled():
     assert "/metrics" not in route_paths
 
 
-def test_configure_http_metrics_exposes_metrics_route_when_enabled():
+def test_configure_http_metrics_exposes_metrics_route_when_enabled(monkeypatch):
     app = FastAPI()
+    calls = {}
+
+    class FakeInstrumentator:
+        def __init__(self, **kwargs):
+            calls["kwargs"] = kwargs
+
+        def instrument(self, instrumented_app):
+            calls["instrumented_app"] = instrumented_app
+            return self
+
+        def expose(self, exposed_app, *, endpoint, include_in_schema):
+            calls["exposed_app"] = exposed_app
+            calls["endpoint"] = endpoint
+            calls["include_in_schema"] = include_in_schema
+
+            @exposed_app.get(endpoint, include_in_schema=include_in_schema)
+            def fake_metrics():
+                return "metrics"
+
+            return self
+
+    monkeypatch.setattr(metrics, "Instrumentator", FakeInstrumentator)
 
     metrics.configure_http_metrics(
         app,
@@ -39,6 +67,15 @@ def test_configure_http_metrics_exposes_metrics_route_when_enabled():
     route_paths = {route.path for route in app.routes if isinstance(route, Route)}
 
     assert "/metrics" in route_paths
+    assert calls["kwargs"] == {
+        "should_group_status_codes": True,
+        "should_ignore_untemplated": True,
+        "excluded_handlers": ["/metrics"],
+    }
+    assert calls["instrumented_app"] is app
+    assert calls["exposed_app"] is app
+    assert calls["endpoint"] == "/metrics"
+    assert calls["include_in_schema"] is False
 
 
 def test_record_app_exception_records_exception_category():
