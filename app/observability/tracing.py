@@ -27,6 +27,7 @@ def configure_tracing(
     otlp_endpoint: str,
     sample_ratio: float,
     otlp_insecure: bool = True,
+    excluded_urls: str | None = None,
 ) -> None:
     if not enabled:
         return
@@ -50,7 +51,10 @@ def configure_tracing(
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(
+        app,
+        excluded_urls=excluded_urls,
+    )
     RequestsInstrumentor().instrument()
 
 
