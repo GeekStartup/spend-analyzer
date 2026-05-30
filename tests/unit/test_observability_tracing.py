@@ -17,6 +17,7 @@ def test_configure_tracing_does_nothing_when_disabled():
         enabled=False,
         service_name="spend-analyzer-api",
         otlp_endpoint="http://localhost:4317",
+        otlp_insecure=True,
         sample_ratio=1.0,
     )
 
@@ -105,6 +106,7 @@ def test_configure_tracing_when_enabled(monkeypatch):
         enabled=True,
         service_name="spend-analyzer-api",
         otlp_endpoint="http://localhost:4317",
+        otlp_insecure=False,
         sample_ratio=0.5,
     )
 
@@ -114,7 +116,7 @@ def test_configure_tracing_when_enabled(monkeypatch):
     assert calls["sample_ratio"] == 0.5
     assert calls["provider_resource"] == "fake-resource"
     assert calls["exporter_endpoint"] == "http://localhost:4317"
-    assert calls["exporter_insecure"] is True
+    assert calls["exporter_insecure"] is False
     assert calls["fastapi_app"] is app
     assert calls["requests_instrumented"] is True
     assert "provider_sampler" in calls
