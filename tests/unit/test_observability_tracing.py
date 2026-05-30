@@ -91,8 +91,9 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
 
     class FakeFastAPIInstrumentor:
         @staticmethod
-        def instrument_app(instrumented_app):
+        def instrument_app(instrumented_app, excluded_urls=None):
             calls["fastapi_app"] = instrumented_app
+            calls["excluded_urls"] = excluded_urls
 
     class FakeRequestsInstrumentor:
         def instrument(self):
@@ -117,6 +118,7 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
         otlp_endpoint="http://localhost:4317",
         otlp_insecure=False,
         sample_ratio=0.5,
+        excluded_urls="/metrics",
     )
 
     assert calls["resource_attributes"] == {
@@ -127,6 +129,7 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
     assert calls["exporter_endpoint"] == "http://localhost:4317"
     assert calls["exporter_insecure"] is False
     assert calls["fastapi_app"] is app
+    assert calls["excluded_urls"] == "/metrics"
     assert calls["requests_instrumented"] is True
     assert "provider_sampler" in calls
     assert "tracer_provider" in calls
@@ -165,7 +168,7 @@ def test_configure_tracing_allows_explicit_secure_override(monkeypatch):
 
     class FakeFastAPIInstrumentor:
         @staticmethod
-        def instrument_app(instrumented_app):
+        def instrument_app(instrumented_app, excluded_urls=None):
             pass
 
     class FakeRequestsInstrumentor:
