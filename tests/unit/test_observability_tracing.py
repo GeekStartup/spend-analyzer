@@ -58,7 +58,7 @@ def test_disabled_span_context_manager():
         assert value is None
 
 
-def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypatch):
+def test_configure_tracing_uses_insecure_transport_for_http_endpoint(monkeypatch):
     app = FastAPI()
     calls = {}
 
@@ -116,7 +116,6 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
         enabled=True,
         service_name="spend-analyzer-api",
         otlp_endpoint="http://localhost:4317",
-        otlp_insecure=False,
         sample_ratio=0.5,
         excluded_urls="/metrics",
     )
@@ -127,7 +126,7 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
     assert calls["sample_ratio"] == 0.5
     assert calls["provider_resource"] == "fake-resource"
     assert calls["exporter_endpoint"] == "http://localhost:4317"
-    assert calls["exporter_insecure"] is False
+    assert calls["exporter_insecure"] is True
     assert calls["fastapi_app"] is app
     assert calls["excluded_urls"] == "/metrics"
     assert calls["requests_instrumented"] is True
@@ -135,6 +134,68 @@ def test_configure_tracing_infers_insecure_transport_for_http_endpoint(monkeypat
     assert "tracer_provider" in calls
     assert "span_processor" in calls
     assert "batch_exporter" in calls
+
+
+def test_configure_tracing_uses_secure_transport_for_https_endpoint(monkeypatch):
+    app = FastAPI()
+    calls = {}
+
+    class FakeResource:
+        @staticmethod
+        def create(attributes):
+            return attributes
+
+    class FakeSampler:
+        def __init__(self, sample_ratio):
+            pass
+
+    class FakeTracerProvider:
+        def __init__(self, *, resource, sampler):
+            pass
+
+        def add_span_processor(self, span_processor):
+            pass
+
+    class FakeExporter:
+        def __init__(self, *, endpoint, insecure):
+            calls["exporter_endpoint"] = endpoint
+            calls["exporter_insecure"] = insecure
+
+    class FakeBatchSpanProcessor:
+        def __init__(self, exporter):
+            pass
+
+    class FakeFastAPIInstrumentor:
+        @staticmethod
+        def instrument_app(instrumented_app, excluded_urls=None):
+            pass
+
+    class FakeRequestsInstrumentor:
+        def instrument(self):
+            pass
+
+    def fake_set_tracer_provider(provider):
+        pass
+
+    monkeypatch.setattr(tracing, "Resource", FakeResource)
+    monkeypatch.setattr(tracing, "TraceIdRatioBased", FakeSampler)
+    monkeypatch.setattr(tracing, "TracerProvider", FakeTracerProvider)
+    monkeypatch.setattr(tracing, "OTLPSpanExporter", FakeExporter)
+    monkeypatch.setattr(tracing, "BatchSpanProcessor", FakeBatchSpanProcessor)
+    monkeypatch.setattr(tracing, "FastAPIInstrumentor", FakeFastAPIInstrumentor)
+    monkeypatch.setattr(tracing, "RequestsInstrumentor", FakeRequestsInstrumentor)
+    monkeypatch.setattr(tracing.trace, "set_tracer_provider", fake_set_tracer_provider)
+
+    configure_tracing(
+        app,
+        enabled=True,
+        service_name="spend-analyzer-api",
+        otlp_endpoint="https://collector.example.com:4317",
+        sample_ratio=1.0,
+    )
+
+    assert calls["exporter_endpoint"] == "https://collector.example.com:4317"
+    assert calls["exporter_insecure"] is False
 
 
 def test_configure_tracing_allows_explicit_secure_override(monkeypatch):
