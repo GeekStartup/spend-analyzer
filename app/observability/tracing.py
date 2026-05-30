@@ -26,13 +26,10 @@ def configure_tracing(
     service_name: str,
     otlp_endpoint: str,
     sample_ratio: float,
-    otlp_insecure: bool | None = None,
+    otlp_insecure: bool = True,
 ) -> None:
     if not enabled:
         return
-
-    if otlp_insecure is None:
-        otlp_insecure = is_otlp_insecure_endpoint(otlp_endpoint)
 
     resource = Resource.create(
         {
@@ -47,7 +44,7 @@ def configure_tracing(
 
     exporter = OTLPSpanExporter(
         endpoint=otlp_endpoint,
-        insecure=otlp_insecure,
+        insecure=otlp_insecure and is_otlp_insecure_endpoint(otlp_endpoint),
     )
 
     provider.add_span_processor(BatchSpanProcessor(exporter))
