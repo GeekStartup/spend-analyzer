@@ -13,6 +13,20 @@ def get_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
     return 0.0
 
 
+def test_upload_size_buckets_are_byte_sized_for_statement_uploads():
+    assert metrics.UPLOAD_SIZE_BUCKETS_BYTES == (
+        10 * 1024,
+        50 * 1024,
+        100 * 1024,
+        250 * 1024,
+        500 * 1024,
+        1 * 1024 * 1024,
+        2 * 1024 * 1024,
+        5 * 1024 * 1024,
+        10 * 1024 * 1024,
+    )
+
+
 def test_configure_http_metrics_does_nothing_when_disabled(monkeypatch):
     app = FastAPI()
 
