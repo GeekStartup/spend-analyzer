@@ -54,7 +54,7 @@ def test_middleware_clears_request_context_after_request():
     assert get_request_id() is None
 
 
-def test_middleware_records_unhandled_exception(monkeypatch):
+def test_middleware_records_unhandled_exception_and_returns_request_id(monkeypatch):
     test_app = FastAPI()
     test_app.add_middleware(RequestContextMiddleware)
 
@@ -77,7 +77,36 @@ def test_middleware_records_unhandled_exception(monkeypatch):
     response = client.get("/boom")
 
     assert response.status_code == 500
+    assert response.headers[REQUEST_ID_HEADER]
+    assert response.json() == {"detail": "Internal Server Error"}
     assert recorded_categories == ["unhandled"]
+    assert get_request_id() is None
+
+
+def test_middleware_preserves_existing_request_id_header_on_unhandled_exception(
+    monkeypatch,
+):
+    test_app = FastAPI()
+    test_app.add_middleware(RequestContextMiddleware)
+
+    monkeypatch.setattr(
+        "app.observability.middleware.record_app_exception",
+        lambda _exception_category: None,
+    )
+
+    @test_app.get("/boom")
+    def boom():
+        raise RuntimeError("boom")
+
+    client = TestClient(test_app, raise_server_exceptions=False)
+
+    response = client.get(
+        "/boom",
+        headers={REQUEST_ID_HEADER: "request-123"},
+    )
+
+    assert response.status_code == 500
+    assert response.headers[REQUEST_ID_HEADER] == "request-123"
     assert get_request_id() is None
 
 
@@ -94,17 +123,17 @@ def test_get_route_path_returns_unmatched_when_route_is_missing():
     assert _get_route_path(request) == "unmatched"
 
 
-def test_should_log_request_skips_metrics_route():
-    assert _should_log_request("/metrics") is False
+def test_should_log_request_skips_configured_metrics_route():
+    assert _should_log_request("/internal/metrics", "/internal/metrics") is False
 
 
 def test_should_log_request_allows_non_metrics_route():
-    assert _should_log_request("/health") is True
+    assert _should_log_request("/health", "/metrics") is True
 
 
-def test_middleware_skips_request_log_for_metrics_route(monkeypatch):
+def test_middleware_skips_request_log_for_configured_metrics_route(monkeypatch):
     test_app = FastAPI()
-    test_app.add_middleware(RequestContextMiddleware)
+    test_app.add_middleware(RequestContextMiddleware, metrics_path="/internal/metrics")
 
     log_calls = []
 
@@ -116,13 +145,13 @@ def test_middleware_skips_request_log_for_metrics_route(monkeypatch):
         fake_info,
     )
 
-    @test_app.get("/metrics")
+    @test_app.get("/internal/metrics")
     def metrics():
         return "metrics"
 
     client = TestClient(test_app)
 
-    response = client.get("/metrics")
+    response = client.get("/internal/metrics")
 
     assert response.status_code == 200
     assert log_calls == []
