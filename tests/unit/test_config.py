@@ -89,6 +89,11 @@ def test_settings_rejects_metrics_path_without_leading_slash():
         create_settings(metrics_path="metrics")
 
 
+def test_settings_rejects_metrics_root_path():
+    with pytest.raises(ValidationError, match="Value must not be root path"):
+        create_settings(metrics_path="/")
+
+
 def test_settings_rejects_invalid_otel_sample_ratio():
     with pytest.raises(ValidationError):
         create_settings(otel_sample_ratio=1.5)

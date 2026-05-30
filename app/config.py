@@ -139,6 +139,9 @@ class Settings(BaseSettings):
         if not stripped_value.startswith("/"):
             raise ValueError("Value must start with /")
 
+        if stripped_value == "/":
+            raise ValueError("Value must not be root path")
+
         return stripped_value
 
     @computed_field
