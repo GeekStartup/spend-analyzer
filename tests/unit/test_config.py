@@ -103,3 +103,9 @@ def test_settings_trims_otel_service_name():
     settings = create_settings(otel_service_name="  spend-analyzer-api  ")
 
     assert settings.otel_service_name == "spend-analyzer-api"
+
+
+def test_settings_accepts_lowercase_log_level():
+    settings = create_settings(log_level="debug")
+
+    assert settings.log_level == "DEBUG"

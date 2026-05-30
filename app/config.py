@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field, field_validator
@@ -143,6 +143,14 @@ class Settings(BaseSettings):
             raise ValueError("Value must not be root path")
 
         return stripped_value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().upper()
+
+        return value
 
     @computed_field
     @property
