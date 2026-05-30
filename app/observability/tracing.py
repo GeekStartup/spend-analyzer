@@ -15,17 +15,24 @@ from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 TRACER_NAME = "spend-analyzer"
 
 
+def is_otlp_insecure_endpoint(otlp_endpoint: str) -> bool:
+    return not otlp_endpoint.lower().startswith("https://")
+
+
 def configure_tracing(
     app: FastAPI,
     *,
     enabled: bool,
     service_name: str,
     otlp_endpoint: str,
-    otlp_insecure: bool,
     sample_ratio: float,
+    otlp_insecure: bool | None = None,
 ) -> None:
     if not enabled:
         return
+
+    if otlp_insecure is None:
+        otlp_insecure = is_otlp_insecure_endpoint(otlp_endpoint)
 
     resource = Resource.create(
         {
