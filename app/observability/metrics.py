@@ -2,6 +2,18 @@ from fastapi import FastAPI
 from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
+UPLOAD_SIZE_BUCKETS_BYTES = (
+    10 * 1024,
+    50 * 1024,
+    100 * 1024,
+    250 * 1024,
+    500 * 1024,
+    1 * 1024 * 1024,
+    2 * 1024 * 1024,
+    5 * 1024 * 1024,
+    10 * 1024 * 1024,
+)
+
 APP_EXCEPTIONS_TOTAL = Counter(
     "app_exceptions_total",
     "Total number of application exceptions.",
@@ -35,6 +47,7 @@ STATEMENT_UPLOAD_SIZE_BYTES = Histogram(
     "statement_upload_size_bytes",
     "Uploaded statement size in bytes.",
     ["content_type"],
+    buckets=UPLOAD_SIZE_BUCKETS_BYTES,
 )
 
 
