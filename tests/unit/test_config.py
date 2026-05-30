@@ -109,3 +109,8 @@ def test_settings_accepts_lowercase_log_level():
     settings = create_settings(log_level="debug")
 
     assert settings.log_level == "DEBUG"
+
+
+def test_settings_rejects_non_string_log_level():
+    with pytest.raises(ValidationError):
+        create_settings(log_level=123)
