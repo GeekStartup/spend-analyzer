@@ -25,9 +25,10 @@ def create_app() -> FastAPI:
         service_name=settings.otel_service_name,
         otlp_endpoint=settings.otel_exporter_otlp_endpoint,
         sample_ratio=settings.otel_sample_ratio,
+        excluded_urls=settings.metrics_path,
     )
 
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(RequestContextMiddleware, metrics_path=settings.metrics_path)
 
     configure_http_metrics(
         app,
