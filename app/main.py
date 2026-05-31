@@ -15,9 +15,11 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title=settings.app_name,
-        description="AI-powered personal finance spend analyzer",
+        description="Spend Analyzer API",
         version=settings.app_version,
     )
+
+    app.add_middleware(RequestContextMiddleware, metrics_path=settings.metrics_path)
 
     configure_tracing(
         app,
@@ -28,17 +30,15 @@ def create_app() -> FastAPI:
         excluded_urls=settings.metrics_path,
     )
 
-    app.add_middleware(RequestContextMiddleware, metrics_path=settings.metrics_path)
+    app.include_router(health_router)
+    app.include_router(me_router)
+    app.include_router(ingest_router)
 
     configure_http_metrics(
         app,
         enabled=settings.metrics_enabled,
         metrics_path=settings.metrics_path,
     )
-
-    app.include_router(health_router)
-    app.include_router(me_router)
-    app.include_router(ingest_router)
 
     return app
 
