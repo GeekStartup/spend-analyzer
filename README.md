@@ -57,12 +57,15 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Install dependencies:
+Upgrade pip and install dependencies:
 
 ```bash
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 ```
+
+Local development intentionally upgrades to the latest pip release. CI uses a reviewed, pinned pip version so the same commit remains reproducible over time.
 
 Start the local stack:
 
