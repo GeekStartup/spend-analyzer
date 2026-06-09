@@ -8,6 +8,10 @@ Step = tuple[str, list[str]]
 
 INSTALL_STEPS: tuple[Step, ...] = (
     (
+        "Upgrade pip",
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
+    ),
+    (
         "Install runtime dependencies",
         [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
     ),
