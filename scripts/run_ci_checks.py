@@ -1,7 +1,9 @@
 import argparse
+import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 
 Step = tuple[str, list[str]]
@@ -60,27 +62,43 @@ NON_COMPOSE_CHECK_STEPS: tuple[Step, ...] = (
 )
 
 
-def select_compose_env_file(project_root: Path = PROJECT_ROOT) -> Path:
+@contextmanager
+def prepare_compose_env_file(
+    project_root: Path = PROJECT_ROOT,
+) -> Iterator[Path]:
     local_env_file = project_root / ".env"
 
     if local_env_file.is_file():
-        return local_env_file
+        yield local_env_file
+        return
 
     example_env_file = project_root / ".env.example"
 
-    if example_env_file.is_file():
-        return example_env_file
+    if not example_env_file.is_file():
+        raise FileNotFoundError("Neither .env nor .env.example exists")
 
-    raise FileNotFoundError("Neither .env nor .env.example exists")
+    shutil.copyfile(example_env_file, local_env_file)
+
+    try:
+        yield local_env_file
+    finally:
+        local_env_file.unlink(missing_ok=True)
 
 
-def build_check_steps(project_root: Path = PROJECT_ROOT) -> tuple[Step, ...]:
-    env_file = str(select_compose_env_file(project_root))
+def build_check_steps(env_file: Path) -> tuple[Step, ...]:
+    env_file_argument = str(env_file)
 
     compose_check_steps: tuple[Step, ...] = (
         (
             "Validate normal Docker Compose configuration",
-            ["docker", "compose", "--env-file", env_file, "config", "--quiet"],
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file_argument,
+                "config",
+                "--quiet",
+            ],
         ),
         (
             "Validate observability Docker Compose configuration",
@@ -88,7 +106,7 @@ def build_check_steps(project_root: Path = PROJECT_ROOT) -> tuple[Step, ...]:
                 "docker",
                 "compose",
                 "--env-file",
-                env_file,
+                env_file_argument,
                 "--profile",
                 "observability",
                 "config",
@@ -101,7 +119,7 @@ def build_check_steps(project_root: Path = PROJECT_ROOT) -> tuple[Step, ...]:
                 "docker",
                 "compose",
                 "--env-file",
-                env_file,
+                env_file_argument,
                 "-f",
                 "docker-compose.test.yml",
                 "config",
@@ -124,6 +142,16 @@ def run_command(name: str, command: Sequence[str]) -> int:
     return completed_process.returncode
 
 
+def run_steps(steps: Sequence[Step]) -> int:
+    for name, command in steps:
+        exit_code = run_command(name, command)
+        if exit_code != 0:
+            print(f"\nFailed: {name}")
+            return exit_code
+
+    return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the same checks as the GitHub Actions build."
@@ -139,19 +167,20 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    if not args.skip_install:
+        install_exit_code = run_steps(INSTALL_STEPS)
+        if install_exit_code != 0:
+            return install_exit_code
+
     try:
-        check_steps = build_check_steps()
+        with prepare_compose_env_file() as env_file:
+            check_exit_code = run_steps(build_check_steps(env_file))
     except FileNotFoundError as error:
         print(f"\nFailed: {error}")
         return 1
 
-    steps = check_steps if args.skip_install else INSTALL_STEPS + check_steps
-
-    for name, command in steps:
-        exit_code = run_command(name, command)
-        if exit_code != 0:
-            print(f"\nFailed: {name}")
-            return exit_code
+    if check_exit_code != 0:
+        return check_exit_code
 
     print("\nAll local CI checks passed.")
     return 0
