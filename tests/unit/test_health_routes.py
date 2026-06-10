@@ -146,9 +146,7 @@ def test_database_health_connection_error_returns_problem_details(monkeypatch):
         duration_ms=250.0,
         exception_type="OperationalError",
     )
-    assert sensitive_error_message not in str(
-        observability["logger"].warning.call_args
-    )
+    assert sensitive_error_message not in str(observability["logger"].warning.call_args)
 
 
 def test_database_health_unhealthy_result_returns_problem_details(monkeypatch):

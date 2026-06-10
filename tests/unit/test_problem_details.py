@@ -73,9 +73,7 @@ def test_method_not_allowed_preserves_allow_header():
 
     assert response.status_code == 405
     assert response.headers["allow"] == "GET"
-    assert response.json()["type"] == (
-        "urn:spend-analyzer:problem:method-not-allowed"
-    )
+    assert response.json()["type"] == ("urn:spend-analyzer:problem:method-not-allowed")
 
 
 def test_validation_problem_excludes_raw_input():
@@ -91,7 +89,6 @@ def test_validation_problem_excludes_raw_input():
     assert body["detail"] == "One or more request fields are invalid."
     assert body["errors"]
     assert all(
-        set(error) == {"code", "location", "message"}
-        for error in body["errors"]
+        set(error) == {"code", "location", "message"} for error in body["errors"]
     )
     assert "input" not in str(body["errors"])
