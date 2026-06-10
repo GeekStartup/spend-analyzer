@@ -19,6 +19,7 @@ from app.observability.tracing import record_exception_safely, start_span
 from app.schemas.auth_schema import AuthenticatedUser
 from app.schemas.ingest_schema import StatementUploadResponse
 from app.services.file_storage_service import (
+    PDF_CONTENT_TYPES,
     FileStorageError,
     FileStorageUnavailableError,
     UploadTooLargeError,
@@ -32,6 +33,7 @@ CHUNK_SIZE_BYTES = 1024 * 1024
 INGESTION_FAILURE_UPLOAD_TOO_LARGE = "upload_too_large"
 INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE = "file_validation_or_storage"
 INGESTION_FAILURE_STORAGE_ERROR = "storage_error"
+OBSERVABILITY_CONTENT_TYPE_UNKNOWN = "unknown"
 
 router = APIRouter(tags=["Ingestion"])
 logger = get_logger(__name__)
@@ -47,6 +49,15 @@ def normalize_optional_text(value: str | None) -> str | None:
         return None
 
     return stripped_value
+
+
+def get_observability_content_type(content_type: str | None) -> str:
+    normalized_content_type = normalize_content_type(content_type)
+
+    if normalized_content_type in PDF_CONTENT_TYPES:
+        return normalized_content_type
+
+    return OBSERVABILITY_CONTENT_TYPE_UNKNOWN
 
 
 async def read_upload_file_with_limit(
@@ -124,7 +135,7 @@ async def upload_statement(
     statement_format: Annotated[str | None, Form()] = None,
 ) -> StatementUploadResponse:
     statement_reference = str(uuid4())
-    content_type = normalize_content_type(file.content_type) or "unknown"
+    content_type = get_observability_content_type(file.content_type)
 
     record_statement_ingestion_attempt()
 
