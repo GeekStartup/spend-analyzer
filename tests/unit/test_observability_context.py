@@ -1,3 +1,6 @@
+from unittest.mock import Mock
+
+from app.observability import context
 from app.observability.context import (
     bind_request_context,
     clear_request_context,
@@ -5,10 +8,6 @@ from app.observability.context import (
     get_span_id,
     get_trace_id,
 )
-
-from unittest.mock import Mock
-
-from app.observability import context
 
 
 def test_request_context_round_trip():
