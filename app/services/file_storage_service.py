@@ -10,21 +10,19 @@ PDF_SIGNATURE = b"%PDF"
 
 
 class FileStorageError(Exception):
-    """
-    Raised when uploaded file validation or storage fails.
-    """
+    """Raised when file-storage processing fails unexpectedly."""
+
+
+class InvalidPdfError(FileStorageError):
+    """Raised when an uploaded file does not satisfy the PDF contract."""
 
 
 class FileStorageUnavailableError(FileStorageError):
-    """
-    Raised when the configured storage backend cannot persist a valid upload.
-    """
+    """Raised when the configured storage backend cannot persist a valid upload."""
 
 
 class UploadTooLargeError(FileStorageError):
-    """
-    Raised when uploaded file exceeds the configured maximum size.
-    """
+    """Raised when uploaded file exceeds the configured maximum size."""
 
 
 def normalize_content_type(content_type: str | None) -> str:
@@ -36,15 +34,15 @@ def normalize_content_type(content_type: str | None) -> str:
 
 def validate_pdf_metadata(file: UploadFile) -> None:
     if not file.filename:
-        raise FileStorageError("Uploaded file name is required")
+        raise InvalidPdfError("Uploaded file name is required")
 
     if not file.filename.lower().endswith(PDF_EXTENSION):
-        raise FileStorageError("Only PDF files are allowed")
+        raise InvalidPdfError("Only PDF files are allowed")
 
     normalized_content_type = normalize_content_type(file.content_type)
 
     if normalized_content_type and normalized_content_type not in PDF_CONTENT_TYPES:
-        raise FileStorageError("Only PDF files are allowed")
+        raise InvalidPdfError("Only PDF files are allowed")
 
 
 def validate_pdf_upload(
@@ -55,13 +53,13 @@ def validate_pdf_upload(
     validate_pdf_metadata(file)
 
     if not content:
-        raise FileStorageError("Uploaded file must not be empty")
+        raise InvalidPdfError("Uploaded file must not be empty")
 
     if len(content) > max_upload_size_bytes:
         raise UploadTooLargeError("Uploaded file exceeds maximum allowed size")
 
     if not content.startswith(PDF_SIGNATURE):
-        raise FileStorageError("Uploaded file content is not a valid PDF")
+        raise InvalidPdfError("Uploaded file content is not a valid PDF")
 
 
 def create_user_storage_key(user_id: str) -> str:
@@ -80,13 +78,7 @@ def save_uploaded_pdf(
     content: bytes,
     max_upload_size_bytes: int,
 ) -> tuple[str, str]:
-    """
-    Save a PDF file using a generated file name.
-
-    The original file name and raw user id are never trusted as path parts.
-    Filesystem failures are translated into a bounded domain exception so
-    API and observability layers do not expose operating-system details.
-    """
+    """Validate and save a PDF using generated, non-user-controlled path parts."""
     validate_pdf_upload(
         file=file,
         content=content,
@@ -102,7 +94,6 @@ def save_uploaded_pdf(
             raise FileStorageError("Resolved upload path is outside upload directory")
 
         user_upload_path.mkdir(parents=True, exist_ok=True)
-
         stored_file_name = f"{statement_reference}-{uuid4().hex}.pdf"
         stored_file_path = user_upload_path / stored_file_name
         stored_file_path.write_bytes(content)
