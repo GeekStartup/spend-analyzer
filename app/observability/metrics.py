@@ -26,6 +26,18 @@ APP_DEPENDENCY_HEALTH_STATUS = Gauge(
     ["dependency"],
 )
 
+AUTH_FAILURES_TOTAL = Counter(
+    "auth_failures_total",
+    "Total number of authentication failures.",
+    ["failure_category"],
+)
+
+FILE_STORAGE_FAILURES_TOTAL = Counter(
+    "file_storage_failures_total",
+    "Total number of file-storage failures.",
+    ["failure_category"],
+)
+
 STATEMENT_INGESTION_ATTEMPTS_TOTAL = Counter(
     "statement_ingestion_attempts_total",
     "Total number of statement ingestion attempts.",
@@ -51,6 +63,18 @@ STATEMENT_UPLOAD_SIZE_BYTES = Histogram(
 )
 
 
+def ensure_metrics_path_available(app: FastAPI, metrics_path: str) -> None:
+    conflicting_routes = [
+        route for route in app.routes if getattr(route, "path", None) == metrics_path
+    ]
+
+    if conflicting_routes:
+        raise ValueError(
+            f"Metrics path {metrics_path!r} conflicts with an existing "
+            "application route"
+        )
+
+
 def configure_http_metrics(
     app: FastAPI,
     *,
@@ -59,6 +83,8 @@ def configure_http_metrics(
 ) -> None:
     if not enabled:
         return
+
+    ensure_metrics_path_available(app, metrics_path)
 
     Instrumentator(
         should_group_status_codes=True,
@@ -81,6 +107,18 @@ def record_dependency_health(dependency: str, is_healthy: bool) -> None:
     APP_DEPENDENCY_HEALTH_STATUS.labels(
         dependency=dependency,
     ).set(1 if is_healthy else 0)
+
+
+def record_auth_failure(failure_category: str) -> None:
+    AUTH_FAILURES_TOTAL.labels(
+        failure_category=failure_category,
+    ).inc()
+
+
+def record_file_storage_failure(failure_category: str) -> None:
+    FILE_STORAGE_FAILURES_TOTAL.labels(
+        failure_category=failure_category,
+    ).inc()
 
 
 def record_statement_ingestion_attempt() -> None:

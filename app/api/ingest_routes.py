@@ -10,15 +10,17 @@ from app.auth.dependencies import get_current_user
 from app.config import settings
 from app.observability.logging import get_logger
 from app.observability.metrics import (
+    record_file_storage_failure,
     record_statement_ingestion_attempt,
     record_statement_ingestion_failure,
     record_statement_ingestion_success,
 )
-from app.observability.tracing import start_span
+from app.observability.tracing import record_exception_safely, start_span
 from app.schemas.auth_schema import AuthenticatedUser
 from app.schemas.ingest_schema import StatementUploadResponse
 from app.services.file_storage_service import (
     FileStorageError,
+    FileStorageUnavailableError,
     UploadTooLargeError,
     normalize_content_type,
     save_uploaded_pdf,
@@ -29,6 +31,7 @@ CHUNK_SIZE_BYTES = 1024 * 1024
 
 INGESTION_FAILURE_UPLOAD_TOO_LARGE = "upload_too_large"
 INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE = "file_validation_or_storage"
+INGESTION_FAILURE_STORAGE_ERROR = "storage_error"
 
 router = APIRouter(tags=["Ingestion"])
 logger = get_logger(__name__)
@@ -85,7 +88,7 @@ def record_ingestion_failure(
     """
     record_statement_ingestion_failure(failure_category)
 
-    span.record_exception(error)
+    record_exception_safely(span, error)
     span.set_status(
         Status(
             status_code=StatusCode.ERROR,
@@ -161,11 +164,24 @@ async def upload_statement(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=str(error),
             ) from error
+        except FileStorageUnavailableError as error:
+            record_file_storage_failure(INGESTION_FAILURE_STORAGE_ERROR)
+            record_ingestion_failure(
+                span=span,
+                statement_reference=statement_reference,
+                failure_category=INGESTION_FAILURE_STORAGE_ERROR,
+                error=error,
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="File storage is unavailable",
+            ) from error
         except FileStorageError as error:
             record_ingestion_failure(
                 span=span,
                 statement_reference=statement_reference,
-                failure_category=(INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE),
+                failure_category=INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE,
                 error=error,
             )
 

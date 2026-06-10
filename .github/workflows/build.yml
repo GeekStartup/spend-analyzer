@@ -50,6 +50,15 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
 
+      - name: Prepare Compose environment
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose configurations
+        run: |
+          docker compose config --quiet
+          docker compose --profile observability config --quiet
+          docker compose -f docker-compose.test.yml config --quiet
+
       - name: Run Ruff lint
         run: python -m ruff check --output-format=github .
 

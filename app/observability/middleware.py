@@ -57,7 +57,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
             record_app_exception("unhandled")
 
-            logger.exception(
+            logger.error(
                 "http.request",
                 method=request.method,
                 route=route_path,

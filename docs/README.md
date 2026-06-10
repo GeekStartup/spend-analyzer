@@ -10,6 +10,7 @@ This directory contains project-level documentation. Each file has a distinct pu
 | [`MVP_ROADMAP.md`](MVP_ROADMAP.md) | MVP phases, issue breakdown, build order, and delivery plan |
 | [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md) | Detailed parsing strategy for generic, bank/account-specific, AI fallback, and manual review flows |
 | [`LOCAL_IDENTITY_PROVIDER.md`](LOCAL_IDENTITY_PROVIDER.md) | Local Keycloak/OIDC setup, token generation, realm import, and test URLs |
+| [`LOCAL_OBSERVABILITY.md`](LOCAL_OBSERVABILITY.md) | Local logs, metrics, traces, PostgreSQL observability, request-ID debugging, and safe telemetry rules |
 | [`LEARNING_GUIDE.md`](LEARNING_GUIDE.md) | Source of truth for learning objectives, learning phase sequencing, issue-quality expectations, and Python/backend/AI/RAG/agent learning guidance |
 
 ## Documentation Rules
@@ -19,5 +20,5 @@ This directory contains project-level documentation. Each file has a distinct pu
 - Keep high-level architecture, major flows, and diagrams in `HLD.md`.
 - Keep implementation-level design in `LLD.md`.
 - Keep parser-specific decisions in `PARSING_STRATEGY.md`.
-- Keep operational setup details in focused runbooks such as `LOCAL_IDENTITY_PROVIDER.md`.
+- Keep operational setup details in focused runbooks such as `LOCAL_IDENTITY_PROVIDER.md` and `LOCAL_OBSERVABILITY.md`.
 - Keep learning objectives and sequencing in `LEARNING_GUIDE.md`.

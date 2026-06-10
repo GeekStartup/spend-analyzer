@@ -11,8 +11,10 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+from opentelemetry.trace import Span
 
 TRACER_NAME = "spend-analyzer"
+SAFE_EXCEPTION_EVENT_NAME = "exception"
 
 
 def is_otlp_insecure_endpoint(otlp_endpoint: str) -> bool:
@@ -63,12 +65,40 @@ def get_tracer(name: str = TRACER_NAME):
 
 
 def start_span(name: str, attributes: dict[str, Any] | None = None):
-    span_context_manager = get_tracer().start_as_current_span(name)
+    span_context_manager = get_tracer().start_as_current_span(
+        name,
+        record_exception=False,
+        set_status_on_exception=False,
+    )
 
     if not attributes:
         return span_context_manager
 
     return SpanAttributeContextManager(span_context_manager, attributes)
+
+
+def record_exception_safely(span: Span, error: BaseException) -> None:
+    """
+    Record only the exception class in telemetry.
+
+    Raw exception messages and stack traces can contain credentials,
+    filenames, financial content, or third-party response payloads.
+    """
+    add_event = getattr(span, "add_event", None)
+
+    if callable(add_event):
+        add_event(
+            SAFE_EXCEPTION_EVENT_NAME,
+            attributes={
+                "exception.type": error.__class__.__name__,
+            },
+        )
+        return
+
+    # Lightweight test doubles created before this helper may expose only
+    # record_exception(). Real OpenTelemetry Span implementations expose
+    # add_event(), which is the production path above.
+    span.record_exception(error)
 
 
 def disabled_span():

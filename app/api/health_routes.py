@@ -5,7 +5,7 @@ from psycopg import Error as PsycopgError
 from app.db.connection import check_database_connection
 from app.observability.logging import get_logger
 from app.observability.metrics import record_dependency_health
-from app.observability.tracing import start_span
+from app.observability.tracing import record_exception_safely, start_span
 from app.schemas.health_schema import HealthResponse
 from app.services.health_service import get_database_health_status, get_health_status
 
@@ -49,7 +49,7 @@ def record_database_health_failure(
     }
 
     if error is not None:
-        span.record_exception(error)
+        record_exception_safely(span, error)
         log_fields["exception_type"] = error.__class__.__name__
 
     logger.warning(

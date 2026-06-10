@@ -23,6 +23,18 @@ INSTALL_STEPS: tuple[Step, ...] = (
 
 CHECK_STEPS: tuple[Step, ...] = (
     (
+        "Validate normal Docker Compose configuration",
+        ["docker", "compose", "config", "--quiet"],
+    ),
+    (
+        "Validate observability Docker Compose configuration",
+        ["docker", "compose", "--profile", "observability", "config", "--quiet"],
+    ),
+    (
+        "Validate test Docker Compose configuration",
+        ["docker", "compose", "-f", "docker-compose.test.yml", "config", "--quiet"],
+    ),
+    (
         "Run Ruff lint",
         [sys.executable, "-m", "ruff", "check", "--output-format=github", "."],
     ),

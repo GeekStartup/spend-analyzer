@@ -15,6 +15,12 @@ class FileStorageError(Exception):
     """
 
 
+class FileStorageUnavailableError(FileStorageError):
+    """
+    Raised when the configured storage backend cannot persist a valid upload.
+    """
+
+
 class UploadTooLargeError(FileStorageError):
     """
     Raised when uploaded file exceeds the configured maximum size.
@@ -78,6 +84,8 @@ def save_uploaded_pdf(
     Save a PDF file using a generated file name.
 
     The original file name and raw user id are never trusted as path parts.
+    Filesystem failures are translated into a bounded domain exception so
+    API and observability layers do not expose operating-system details.
     """
     validate_pdf_upload(
         file=file,
@@ -85,18 +93,20 @@ def save_uploaded_pdf(
         max_upload_size_bytes=max_upload_size_bytes,
     )
 
-    upload_root = Path(upload_dir).resolve()
-    user_storage_key = create_user_storage_key(user_id)
-    user_upload_path = (upload_root / user_storage_key).resolve()
+    try:
+        upload_root = Path(upload_dir).resolve()
+        user_storage_key = create_user_storage_key(user_id)
+        user_upload_path = (upload_root / user_storage_key).resolve()
 
-    if not user_upload_path.is_relative_to(upload_root):
-        raise FileStorageError("Resolved upload path is outside upload directory")
+        if not user_upload_path.is_relative_to(upload_root):
+            raise FileStorageError("Resolved upload path is outside upload directory")
 
-    user_upload_path.mkdir(parents=True, exist_ok=True)
+        user_upload_path.mkdir(parents=True, exist_ok=True)
 
-    stored_file_name = f"{statement_reference}-{uuid4().hex}.pdf"
-    stored_file_path = user_upload_path / stored_file_name
-
-    stored_file_path.write_bytes(content)
+        stored_file_name = f"{statement_reference}-{uuid4().hex}.pdf"
+        stored_file_path = user_upload_path / stored_file_name
+        stored_file_path.write_bytes(content)
+    except OSError as error:
+        raise FileStorageUnavailableError("File storage is unavailable") from error
 
     return stored_file_name, str(stored_file_path)
