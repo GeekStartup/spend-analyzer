@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -43,6 +44,35 @@ def test_middleware_preserves_existing_request_id_header():
     assert response.status_code == 200
     assert response.headers[REQUEST_ID_HEADER] == "request-123"
     assert response.json()["request_id"] == "request-123"
+
+
+@pytest.mark.parametrize(
+    "unsafe_request_id",
+    [
+        "contains spaces",
+        "x" * 129,
+        "../../account-data",
+    ],
+)
+def test_middleware_replaces_unsafe_request_id_header(
+    unsafe_request_id,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.observability.middleware.uuid4",
+        lambda: "generated-request-id",
+    )
+    client = TestClient(create_test_app())
+
+    response = client.get(
+        "/context",
+        headers={REQUEST_ID_HEADER: unsafe_request_id},
+    )
+
+    assert response.status_code == 200
+    assert response.headers[REQUEST_ID_HEADER] == "generated-request-id"
+    assert response.json()["request_id"] == "generated-request-id"
+    assert unsafe_request_id not in response.text
 
 
 def test_middleware_clears_request_context_after_request():

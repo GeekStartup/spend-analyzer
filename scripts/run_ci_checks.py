@@ -2,9 +2,11 @@ import argparse
 import subprocess
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 Step = tuple[str, list[str]]
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 INSTALL_STEPS: tuple[Step, ...] = (
     (
@@ -21,19 +23,7 @@ INSTALL_STEPS: tuple[Step, ...] = (
     ),
 )
 
-CHECK_STEPS: tuple[Step, ...] = (
-    (
-        "Validate normal Docker Compose configuration",
-        ["docker", "compose", "config", "--quiet"],
-    ),
-    (
-        "Validate observability Docker Compose configuration",
-        ["docker", "compose", "--profile", "observability", "config", "--quiet"],
-    ),
-    (
-        "Validate test Docker Compose configuration",
-        ["docker", "compose", "-f", "docker-compose.test.yml", "config", "--quiet"],
-    ),
+NON_COMPOSE_CHECK_STEPS: tuple[Step, ...] = (
     (
         "Run Ruff lint",
         [sys.executable, "-m", "ruff", "check", "--output-format=github", "."],
@@ -70,10 +60,67 @@ CHECK_STEPS: tuple[Step, ...] = (
 )
 
 
+def select_compose_env_file(project_root: Path = PROJECT_ROOT) -> Path:
+    local_env_file = project_root / ".env"
+
+    if local_env_file.is_file():
+        return local_env_file
+
+    example_env_file = project_root / ".env.example"
+
+    if example_env_file.is_file():
+        return example_env_file
+
+    raise FileNotFoundError("Neither .env nor .env.example exists")
+
+
+def build_check_steps(project_root: Path = PROJECT_ROOT) -> tuple[Step, ...]:
+    env_file = str(select_compose_env_file(project_root))
+
+    compose_check_steps: tuple[Step, ...] = (
+        (
+            "Validate normal Docker Compose configuration",
+            ["docker", "compose", "--env-file", env_file, "config", "--quiet"],
+        ),
+        (
+            "Validate observability Docker Compose configuration",
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file,
+                "--profile",
+                "observability",
+                "config",
+                "--quiet",
+            ],
+        ),
+        (
+            "Validate test Docker Compose configuration",
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file,
+                "-f",
+                "docker-compose.test.yml",
+                "config",
+                "--quiet",
+            ],
+        ),
+    )
+
+    return compose_check_steps + NON_COMPOSE_CHECK_STEPS
+
+
 def run_command(name: str, command: Sequence[str]) -> int:
     print(f"\n==> {name}")
     print("$ " + " ".join(command))
-    completed_process = subprocess.run(command, check=False)
+    completed_process = subprocess.run(
+        command,
+        check=False,
+        cwd=PROJECT_ROOT,
+    )
     return completed_process.returncode
 
 
@@ -91,7 +138,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    steps = CHECK_STEPS if args.skip_install else INSTALL_STEPS + CHECK_STEPS
+
+    try:
+        check_steps = build_check_steps()
+    except FileNotFoundError as error:
+        print(f"\nFailed: {error}")
+        return 1
+
+    steps = check_steps if args.skip_install else INSTALL_STEPS + check_steps
 
     for name, command in steps:
         exit_code = run_command(name, command)

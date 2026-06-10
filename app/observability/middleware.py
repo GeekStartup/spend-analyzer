@@ -1,3 +1,4 @@
+import re
 from time import perf_counter
 from uuid import uuid4
 
@@ -11,7 +12,12 @@ from app.observability.logging import get_logger
 from app.observability.metrics import record_app_exception
 
 REQUEST_ID_HEADER = "X-Request-ID"
+REQUEST_ID_MAX_LENGTH = 128
 METRICS_ROUTE_PATH = "/metrics"
+
+_SAFE_REQUEST_ID_PATTERN = re.compile(
+    rf"[A-Za-z0-9][A-Za-z0-9._-]{{0,{REQUEST_ID_MAX_LENGTH - 1}}}"
+)
 
 logger = get_logger(__name__)
 
@@ -24,6 +30,13 @@ def _get_route_path(request: Request) -> str:
         return path
 
     return "unmatched"
+
+
+def _resolve_request_id(candidate: str | None) -> str:
+    if candidate is not None and _SAFE_REQUEST_ID_PATTERN.fullmatch(candidate):
+        return candidate
+
+    return str(uuid4())
 
 
 def _should_log_request(route_path: str, metrics_path: str) -> bool:
@@ -40,10 +53,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        request_id = request.headers.get(REQUEST_ID_HEADER)
-
-        if not request_id:
-            request_id = str(uuid4())
+        request_id = _resolve_request_id(request.headers.get(REQUEST_ID_HEADER))
 
         bind_request_context(request_id)
 
