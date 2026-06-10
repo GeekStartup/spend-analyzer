@@ -3,13 +3,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from app.http import REQUEST_ID_HEADER, get_relative_url
 from app.observability.context import get_request_id
-from app.observability.middleware import (
-    REQUEST_ID_HEADER,
-    RequestContextMiddleware,
-    _get_route_path,
-    _should_log_request,
-)
+from app.observability.middleware import RequestContextMiddleware, _should_log_request
 
 
 def create_test_app() -> FastAPI:
@@ -19,6 +15,10 @@ def create_test_app() -> FastAPI:
     @test_app.get("/context")
     def read_context():
         return {"request_id": get_request_id()}
+
+    @test_app.get("/items/{item_id}")
+    def read_item(item_id: str):
+        return {"item_id": item_id}
 
     return test_app
 
@@ -84,7 +84,7 @@ def test_middleware_clears_request_context_after_request():
     assert get_request_id() is None
 
 
-def test_middleware_records_unhandled_exception_and_returns_request_id(monkeypatch):
+def test_middleware_records_unhandled_exception_as_problem_details(monkeypatch):
     test_app = FastAPI()
     test_app.add_middleware(RequestContextMiddleware)
 
@@ -100,57 +100,77 @@ def test_middleware_records_unhandled_exception_and_returns_request_id(monkeypat
 
     @test_app.get("/boom")
     def boom():
-        raise RuntimeError("boom")
-
-    client = TestClient(test_app, raise_server_exceptions=False)
-
-    response = client.get("/boom")
-
-    assert response.status_code == 500
-    assert response.headers[REQUEST_ID_HEADER]
-    assert response.json() == {"detail": "Internal Server Error"}
-    assert recorded_categories == ["unhandled"]
-    assert get_request_id() is None
-
-
-def test_middleware_preserves_existing_request_id_header_on_unhandled_exception(
-    monkeypatch,
-):
-    test_app = FastAPI()
-    test_app.add_middleware(RequestContextMiddleware)
-
-    monkeypatch.setattr(
-        "app.observability.middleware.record_app_exception",
-        lambda _exception_category: None,
-    )
-
-    @test_app.get("/boom")
-    def boom():
-        raise RuntimeError("boom")
+        raise RuntimeError("sensitive database-password=secret")
 
     client = TestClient(test_app, raise_server_exceptions=False)
 
     response = client.get(
-        "/boom",
+        "/boom?source=test",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
 
     assert response.status_code == 500
     assert response.headers[REQUEST_ID_HEADER] == "request-123"
+    assert response.json() == {
+        "type": "urn:spend-analyzer:problem:internal-server-error",
+        "title": "Internal server error",
+        "status": 500,
+        "detail": "The request could not be completed.",
+        "instance": "urn:spend-analyzer:request:request-123",
+        "request_id": "request-123",
+        "url": "/boom?source=test",
+    }
+    assert "database-password" not in response.text
+    assert recorded_categories == ["unhandled"]
     assert get_request_id() is None
 
 
-def test_get_route_path_returns_unmatched_when_route_is_missing():
+def test_get_relative_url_includes_path_and_query_without_host():
+    request = Request(
+        {
+            "type": "http",
+            "scheme": "https",
+            "server": ("api.example.com", 443),
+            "method": "GET",
+            "path": "/items/item-123",
+            "query_string": b"page=2&status=pending",
+            "headers": [(b"host", b"api.example.com")],
+        }
+    )
+
+    assert get_relative_url(request) == "/items/item-123?page=2&status=pending"
+
+
+def test_get_relative_url_omits_query_separator_when_query_is_empty():
     request = Request(
         {
             "type": "http",
             "method": "GET",
-            "path": "/missing",
+            "path": "/health",
+            "query_string": b"",
             "headers": [],
         }
     )
 
-    assert _get_route_path(request) == "unmatched"
+    assert get_relative_url(request) == "/health"
+
+
+def test_middleware_logs_actual_relative_url(monkeypatch):
+    log_calls = []
+    monkeypatch.setattr(
+        "app.observability.middleware.logger.info",
+        lambda *args, **kwargs: log_calls.append((args, kwargs)),
+    )
+
+    response = TestClient(create_test_app()).get(
+        "/items/item-123?page=2",
+    )
+
+    assert response.status_code == 200
+    assert len(log_calls) == 1
+    assert log_calls[0][0] == ("http.request",)
+    assert log_calls[0][1]["url"] == "/items/item-123?page=2"
+    assert "route" not in log_calls[0][1]
 
 
 def test_should_log_request_skips_configured_metrics_route():
@@ -166,22 +186,16 @@ def test_middleware_skips_request_log_for_configured_metrics_route(monkeypatch):
     test_app.add_middleware(RequestContextMiddleware, metrics_path="/internal/metrics")
 
     log_calls = []
-
-    def fake_info(*args, **kwargs):
-        log_calls.append((args, kwargs))
-
     monkeypatch.setattr(
         "app.observability.middleware.logger.info",
-        fake_info,
+        lambda *args, **kwargs: log_calls.append((args, kwargs)),
     )
 
     @test_app.get("/internal/metrics")
     def metrics():
         return "metrics"
 
-    client = TestClient(test_app)
-
-    response = client.get("/internal/metrics")
+    response = TestClient(test_app).get("/internal/metrics?probe=true")
 
     assert response.status_code == 200
     assert log_calls == []

@@ -8,6 +8,7 @@ from app.observability.logging import configure_logging
 from app.observability.metrics import configure_http_metrics
 from app.observability.middleware import RequestContextMiddleware
 from app.observability.tracing import configure_tracing
+from app.problem_details import register_problem_handlers
 
 
 def create_app() -> FastAPI:
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(RequestContextMiddleware, metrics_path=settings.metrics_path)
+    register_problem_handlers(app)
 
     configure_tracing(
         app,
