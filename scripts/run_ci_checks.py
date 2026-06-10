@@ -1,12 +1,20 @@
 import argparse
+import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from pathlib import Path
 
 Step = tuple[str, list[str]]
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 INSTALL_STEPS: tuple[Step, ...] = (
+    (
+        "Upgrade pip",
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
+    ),
     (
         "Install runtime dependencies",
         [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
@@ -17,7 +25,7 @@ INSTALL_STEPS: tuple[Step, ...] = (
     ),
 )
 
-CHECK_STEPS: tuple[Step, ...] = (
+NON_COMPOSE_CHECK_STEPS: tuple[Step, ...] = (
     (
         "Run Ruff lint",
         [sys.executable, "-m", "ruff", "check", "--output-format=github", "."],
@@ -54,11 +62,94 @@ CHECK_STEPS: tuple[Step, ...] = (
 )
 
 
+@contextmanager
+def prepare_compose_env_file(
+    project_root: Path = PROJECT_ROOT,
+) -> Iterator[Path]:
+    local_env_file = project_root / ".env"
+
+    if local_env_file.is_file():
+        yield local_env_file
+        return
+
+    example_env_file = project_root / ".env.example"
+
+    if not example_env_file.is_file():
+        raise FileNotFoundError("Neither .env nor .env.example exists")
+
+    shutil.copyfile(example_env_file, local_env_file)
+
+    try:
+        yield local_env_file
+    finally:
+        local_env_file.unlink(missing_ok=True)
+
+
+def build_check_steps(env_file: Path) -> tuple[Step, ...]:
+    env_file_argument = str(env_file)
+
+    compose_check_steps: tuple[Step, ...] = (
+        (
+            "Validate normal Docker Compose configuration",
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file_argument,
+                "config",
+                "--quiet",
+            ],
+        ),
+        (
+            "Validate observability Docker Compose configuration",
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file_argument,
+                "--profile",
+                "observability",
+                "config",
+                "--quiet",
+            ],
+        ),
+        (
+            "Validate test Docker Compose configuration",
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                env_file_argument,
+                "-f",
+                "docker-compose.test.yml",
+                "config",
+                "--quiet",
+            ],
+        ),
+    )
+
+    return compose_check_steps + NON_COMPOSE_CHECK_STEPS
+
+
 def run_command(name: str, command: Sequence[str]) -> int:
     print(f"\n==> {name}")
     print("$ " + " ".join(command))
-    completed_process = subprocess.run(command, check=False)
+    completed_process = subprocess.run(
+        command,
+        check=False,
+        cwd=PROJECT_ROOT,
+    )
     return completed_process.returncode
+
+
+def run_steps(steps: Sequence[Step]) -> int:
+    for name, command in steps:
+        exit_code = run_command(name, command)
+        if exit_code != 0:
+            print(f"\nFailed: {name}")
+            return exit_code
+
+    return 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,13 +166,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    steps = CHECK_STEPS if args.skip_install else INSTALL_STEPS + CHECK_STEPS
 
-    for name, command in steps:
-        exit_code = run_command(name, command)
-        if exit_code != 0:
-            print(f"\nFailed: {name}")
-            return exit_code
+    if not args.skip_install:
+        install_exit_code = run_steps(INSTALL_STEPS)
+        if install_exit_code != 0:
+            return install_exit_code
+
+    try:
+        with prepare_compose_env_file() as env_file:
+            check_exit_code = run_steps(build_check_steps(env_file))
+    except FileNotFoundError as error:
+        print(f"\nFailed: {error}")
+        return 1
+
+    if check_exit_code != 0:
+        return check_exit_code
 
     print("\nAll local CI checks passed.")
     return 0

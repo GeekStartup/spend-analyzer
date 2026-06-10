@@ -65,5 +65,97 @@ services:
     ports:
       - "8080:8080"
 
+  otel-collector:
+    image: otel/opentelemetry-collector:0.153.0
+    container_name: spend-analyzer-otel-collector
+    profiles:
+      - observability
+    command:
+      - --config=/etc/otelcol/config.yml
+    volumes:
+      - ./infra/observability/otel-collector-config.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "127.0.0.1:${OTEL_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTEL_HTTP_PORT:-4318}:4318"
+    depends_on:
+      tempo:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: spend-analyzer-prometheus
+    profiles:
+      - observability
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      app:
+        condition: service_started
+      postgres-exporter:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    container_name: spend-analyzer-grafana
+    profiles:
+      - observability
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-change_me}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:2.10.6
+    container_name: spend-analyzer-tempo
+    profiles:
+      - observability
+    command:
+      - -config.file=/etc/tempo.yml
+    volumes:
+      - ./infra/observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "127.0.0.1:${TEMPO_PORT:-3200}:3200"
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
+    container_name: spend-analyzer-postgres-exporter
+    profiles:
+      - observability
+    environment:
+      DATA_SOURCE_URI: "db:5432/${DB_NAME}?sslmode=disable"
+      DATA_SOURCE_USER: ${DB_USER}
+      DATA_SOURCE_PASS: ${DB_PASSWORD}
+    command:
+      - --collector.long_running_transactions
+      - --log.format=json
+    ports:
+      - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   spend_analyzer_pgdata:
+  prometheus_data:
+  tempo_data:
+  grafana_data:

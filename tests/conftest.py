@@ -70,6 +70,17 @@ def pytest_configure():
     os.environ["UPLOAD_DIR"] = "./uploads-test"
     os.environ["STORAGE_TYPE"] = "local"
 
+    os.environ["LOG_LEVEL"] = "INFO"
+    os.environ["LOG_FORMAT"] = "json"
+
+    os.environ["METRICS_ENABLED"] = "true"
+    os.environ["METRICS_PATH"] = "/metrics"
+
+    os.environ["TRACING_ENABLED"] = "false"
+    os.environ["OTEL_SERVICE_NAME"] = "spend-analyzer-api"
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4317"
+    os.environ["OTEL_SAMPLE_RATIO"] = "1.0"
+
 
 def pytest_collection_modifyitems(config, items):
     """

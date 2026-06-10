@@ -26,6 +26,12 @@ services:
 
       UPLOAD_DIR: /app/uploads-test
       STORAGE_TYPE: local
+
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      METRICS_ENABLED: "true"
+      METRICS_PATH: /metrics
+      TRACING_ENABLED: "false"
     ports:
       - "18000:8000"
     depends_on:

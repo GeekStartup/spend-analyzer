@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field, field_validator
@@ -58,6 +58,44 @@ class Settings(BaseSettings):
         description="Storage backend type",
     )
 
+    # Observability
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO",
+        description="Application log level",
+    )
+    log_format: Literal["json"] = Field(
+        default="json",
+        description="Application log format",
+    )
+
+    metrics_enabled: bool = Field(
+        default=True,
+        description="Enable Prometheus-compatible metrics endpoint",
+    )
+    metrics_path: str = Field(
+        default="/metrics",
+        description="HTTP path used to expose Prometheus-compatible metrics",
+    )
+
+    tracing_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry tracing",
+    )
+    otel_service_name: str = Field(
+        default="spend-analyzer-api",
+        description="OpenTelemetry service name",
+    )
+    otel_exporter_otlp_endpoint: str = Field(
+        default="http://otel-collector:4317",
+        description="OpenTelemetry OTLP exporter endpoint",
+    )
+    otel_sample_ratio: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="OpenTelemetry trace sampling ratio",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -77,6 +115,8 @@ class Settings(BaseSettings):
         "oidc_jwks_url",
         "oidc_audience",
         "oidc_client_id",
+        "storage_type",
+        "otel_service_name",
     )
     @classmethod
     def must_not_be_blank(cls, value: str) -> str:
@@ -90,6 +130,27 @@ class Settings(BaseSettings):
         if not value.startswith(("http://", "https://")):
             raise ValueError("Value must start with http:// or https://")
         return value.strip()
+
+    @field_validator("metrics_path")
+    @classmethod
+    def must_start_with_slash(cls, value: str) -> str:
+        stripped_value = value.strip()
+
+        if not stripped_value.startswith("/"):
+            raise ValueError("Value must start with /")
+
+        if stripped_value == "/":
+            raise ValueError("Value must not be root path")
+
+        return stripped_value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().upper()
+
+        return value
 
     @computed_field
     @property

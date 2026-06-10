@@ -20,6 +20,9 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_VERSION: "26.1.2"
+
 jobs:
   build-and-test:
     name: Build and test
@@ -39,10 +42,22 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
+      - name: Install pinned pip version
+        run: python -m pip install --upgrade "pip==${PIP_VERSION}"
+
       - name: Install dependencies
         run: |
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
+
+      - name: Prepare Compose environment
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose configurations
+        run: |
+          docker compose config --quiet
+          docker compose --profile observability config --quiet
+          docker compose -f docker-compose.test.yml config --quiet
 
       - name: Run Ruff lint
         run: python -m ruff check --output-format=github .

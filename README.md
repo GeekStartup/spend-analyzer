@@ -24,7 +24,11 @@ Implemented so far:
 - Health and authenticated user endpoints
 - Authenticated PDF statement upload
 - Local file storage for uploaded statements
-- Strict CI checks for linting, formatting, security, dependency audit, tests, and coverage
+- Structured JSON logs and request correlation
+- Prometheus-compatible HTTP and business metrics
+- OpenTelemetry tracing foundation
+- Optional local Prometheus, Grafana, Tempo, Collector, and PostgreSQL exporter profile
+- Strict CI checks for linting, formatting, security, dependency audit, Compose validation, tests, and coverage
 
 Planned later:
 
@@ -47,6 +51,7 @@ Start with the documentation index:
 - [Parsing strategy](docs/PARSING_STRATEGY.md)
 - [MVP roadmap](docs/MVP_ROADMAP.md)
 - [Local identity provider](docs/LOCAL_IDENTITY_PROVIDER.md)
+- [Local observability](docs/LOCAL_OBSERVABILITY.md)
 - [Learning guide](docs/LEARNING_GUIDE.md)
 
 ## Quickstart
@@ -57,18 +62,29 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Install dependencies:
+Upgrade pip and install dependencies:
 
 ```bash
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 ```
 
-Start the local stack:
+Local development intentionally upgrades to the latest pip release. CI uses a reviewed, pinned pip version so the same commit remains reproducible over time.
+
+Start the normal local stack:
 
 ```bash
 docker compose up --build
 ```
+
+Start the optional observability profile:
+
+```bash
+docker compose --profile observability up --build -d
+```
+
+Tracing is disabled by default. To export traces to the local Collector, set `TRACING_ENABLED=true` in `.env` before recreating the application container.
 
 Useful local endpoints:
 
@@ -77,7 +93,14 @@ Useful local endpoints:
 | Backend health | `http://localhost:8000/health` |
 | Database health | `http://localhost:8000/health/db` |
 | API docs | `http://localhost:8000/docs` |
+| Application metrics | `http://localhost:8000/metrics` |
 | Local identity provider | `http://localhost:8080` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3000` |
+| Tempo readiness | `http://localhost:3200/ready` |
+| PostgreSQL exporter | `http://localhost:9187/metrics` |
+
+See the [local observability runbook](docs/LOCAL_OBSERVABILITY.md) for startup, validation, metric queries, trace inspection, request-ID debugging, database metrics, and safe telemetry rules.
 
 ## Tests and quality checks
 
@@ -90,14 +113,10 @@ pytest
 Run the same quality gates used by CI:
 
 ```bash
-python -m ruff check --output-format=github .
-python -m ruff format --check .
-python -m bandit -r app
-python -m pip_audit -r requirements.txt
-python -m pip_audit -r requirements-dev.txt
-python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
-python scripts/check_coverage.py coverage.json 95 95
+python scripts/run_ci_checks.py
 ```
+
+The local CI script validates the normal and test Compose configurations, linting, formatting, security, dependencies, tests, and coverage.
 
 Coverage policy:
 

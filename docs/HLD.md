@@ -4,7 +4,7 @@
 
 This document describes the high-level architecture of Spend Analyzer.
 
-The HLD explains the major system components, runtime relationships, system boundaries, and important end-to-end flows. Detailed module-level behavior belongs in [`LLD.md`](LLD.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
+It explains the major system components, runtime relationships, observability architecture, system boundaries, and important end-to-end flows. Detailed module-level behavior belongs in [`LLD.md`](LLD.md). Operational procedures for the local observability stack belong in [`LOCAL_OBSERVABILITY.md`](LOCAL_OBSERVABILITY.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
@@ -16,6 +16,7 @@ Spend Analyzer is designed to be:
 - Multi-user from the beginning.
 - Backend-calculation-first for financial correctness.
 - AI-assisted but not AI-dependent.
+- Observable through structured logs, metrics, and traces.
 - Containerized for local development and future cloud deployment.
 - Learning-friendly, with explicit separation between current implementation and planned capabilities.
 
@@ -25,6 +26,7 @@ Core rule:
 SQL/backend calculates.
 Backend validates.
 AI assists and explains.
+Telemetry must remain safe.
 ```
 
 ---
@@ -39,6 +41,9 @@ flowchart LR
     IdP[OIDC identity provider / Keycloak]
     DB[(PostgreSQL)]
     Files[(Local file storage)]
+    Metrics[Prometheus]
+    Traces[Tempo]
+    Dashboards[Grafana]
     AI[Future AI provider]
     Vector[(Future vector store)]
 
@@ -48,9 +53,16 @@ flowchart LR
     API -->|Validate JWT / JWKS| IdP
     API -->|Read/write metadata and transactions| DB
     API -->|Store uploaded PDFs| Files
+    Metrics -->|Scrape application metrics| API
+    Metrics -->|Scrape PostgreSQL metrics| DB
+    API -->|Export traces through Collector| Traces
+    Dashboards --> Metrics
+    Dashboards --> Traces
     API -.->|Future parsing fallback / insights| AI
     API -.->|Future semantic retrieval| Vector
 ```
+
+The user-facing application remains independent of the local observability backend. Metrics and traces are operational outputs; they are not required for business request processing.
 
 ---
 
@@ -58,12 +70,20 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph LocalRuntime[Local Docker runtime]
-        App[FastAPI app container]
-        Db[(PostgreSQL container)]
-        Keycloak[Keycloak identity-provider container]
+    subgraph CoreRuntime[Core local Docker runtime]
+        App[FastAPI app]
+        Db[(PostgreSQL)]
+        Keycloak[Keycloak identity provider]
         Flyway[Flyway migration runner]
-        Uploads[(Uploads volume / directory)]
+        Uploads[(Upload directory)]
+    end
+
+    subgraph OptionalObservability[Optional observability profile]
+        Collector[OpenTelemetry Collector]
+        Prometheus[Prometheus]
+        Grafana[Grafana]
+        Tempo[Tempo]
+        PgExporter[PostgreSQL exporter]
     end
 
     App --> Db
@@ -71,17 +91,36 @@ flowchart TB
     App --> Uploads
     Flyway --> Db
     Keycloak -->|realm import| Realm[Local realm JSON]
+
+    Prometheus -->|scrape /metrics| App
+    PgExporter --> Db
+    Prometheus -->|scrape exporter metrics| PgExporter
+    App -->|OTLP traces| Collector
+    Collector --> Tempo
+    Grafana --> Prometheus
+    Grafana --> Tempo
 ```
 
 Current local services:
 
-| Service | Responsibility |
-|---|---|
-| `app` | FastAPI backend |
-| `db` | PostgreSQL database |
-| `identity-provider` | Local Keycloak/OIDC provider |
-| migration runner | Applies SQL migrations under `infra/db/migration` |
-| upload storage | Stores uploaded PDF files locally |
+| Service | Responsibility | Required for normal app startup |
+|---|---|---:|
+| `app` | FastAPI backend | Yes |
+| `db` | PostgreSQL database | Yes |
+| `identity-provider` | Local Keycloak/OIDC provider | Yes |
+| `flyway` | Applies SQL migrations | Yes, one-shot |
+| upload storage | Stores uploaded PDF files locally | Yes |
+| `otel-collector` | Receives, batches, and forwards OTLP traces | No |
+| `prometheus` | Scrapes and stores application/database metrics | No |
+| `grafana` | Explores metrics and traces | No |
+| `tempo` | Stores local traces | No |
+| `postgres-exporter` | Exposes PostgreSQL operational metrics | No |
+
+The optional services start only with:
+
+```text
+docker compose --profile observability up --build -d
+```
 
 ---
 
@@ -96,6 +135,7 @@ flowchart TB
     Storage[File storage service]
     DbConn[Database connection]
     Settings[Configuration settings]
+    Observability[Observability package]
     DB[(PostgreSQL)]
     Files[(Uploaded files)]
 
@@ -103,12 +143,16 @@ flowchart TB
     Routes --> Schemas
     Routes --> Services
     Routes --> Storage
+    Routes --> Observability
+    Auth --> Observability
     Services --> DbConn
     Storage --> Files
+    Storage --> Observability
     DbConn --> DB
     Auth --> Settings
     Services --> Settings
     Storage --> Settings
+    Observability --> Settings
 ```
 
 Current implemented route modules:
@@ -118,6 +162,16 @@ Current implemented route modules:
 | `health_routes.py` | Application and database health checks |
 | `me_routes.py` | Authenticated user details |
 | `ingest_routes.py` | Authenticated PDF upload |
+
+Current observability modules:
+
+| Module | Responsibility |
+|---|---|
+| `observability/context.py` | Request, trace, and span correlation context |
+| `observability/logging.py` | Structured JSON logging and safe processors |
+| `observability/middleware.py` | Request ID and request outcome summary |
+| `observability/metrics.py` | HTTP, application, dependency, auth, storage, and ingestion metrics |
+| `observability/tracing.py` | OpenTelemetry setup and safe manual span helpers |
 
 Planned component additions:
 
@@ -131,7 +185,56 @@ Planned component additions:
 
 ---
 
-## 6. Authentication Flow
+## 6. Observability Architecture
+
+### 6.1 Signal flows
+
+```text
+Logs:
+FastAPI -> structured JSON -> container stdout
+
+Metrics:
+FastAPI /metrics -------------------+
+                                     +-> Prometheus -> Grafana
+PostgreSQL exporter /metrics -------+
+
+Traces:
+FastAPI -> OTLP -> OpenTelemetry Collector -> Tempo -> Grafana
+```
+
+Prometheus directly scrapes Prometheus-format metrics. The Collector is used for trace transport, batching, and backend routing; it is not a metrics database.
+
+### 6.2 Request correlation
+
+Each request has:
+
+- `request_id`: client-facing support identifier returned through `X-Request-ID`;
+- `trace_id`: distributed trace identifier when tracing is enabled;
+- `span_id`: current operation identifier when tracing is enabled.
+
+Request, trace, and span IDs are log fields only. They are never metric labels.
+
+### 6.3 Safe telemetry boundary
+
+Telemetry must not contain:
+
+- passwords, tokens, API keys, or authorization headers;
+- database URLs or credentials;
+- raw exception messages or stack traces;
+- original filenames when they may be sensitive;
+- statement contents or extracted text;
+- account numbers, card numbers, or user-provided financial descriptions;
+- SQL text or bind values.
+
+The application records bounded failure categories and exception class names instead of uncontrolled exception payloads.
+
+### 6.4 Centralized log search
+
+OpenSearch, Elasticsearch/ELK, and Loki are intentionally deferred. Structured JSON logs to stdout are sufficient for the current MVP. A centralized log backend should be added only when retention, multi-instance search, or incident investigation needs justify its operational cost.
+
+---
+
+## 7. Authentication Flow
 
 ```mermaid
 sequenceDiagram
@@ -139,6 +242,7 @@ sequenceDiagram
     participant Client
     participant IdP as OIDC / Keycloak
     participant API as FastAPI backend
+    participant Metrics as Prometheus metrics
 
     User->>Client: Open app / API client
     Client->>IdP: Authenticate user
@@ -147,8 +251,13 @@ sequenceDiagram
     API->>IdP: Fetch JWKS if not cached
     IdP-->>API: Public signing keys
     API->>API: Validate signature, issuer, audience
-    API->>API: Extract sub, username, email
-    API-->>Client: Authenticated response
+    alt Missing or invalid credentials
+        API->>Metrics: Increment bounded auth failure category
+        API-->>Client: 401 Unauthorized
+    else Valid token
+        API->>API: Extract sub, username, email
+        API-->>Client: Authenticated response
+    end
 ```
 
 Security rules:
@@ -157,10 +266,12 @@ Security rules:
 - Backend never accepts user ownership from request payload.
 - Protected routes require a valid bearer token.
 - JWT issuer and audience must match configured values.
+- Authentication metrics use only bounded categories such as `missing_credentials` and `credentials_invalid`.
+- Token contents and validation messages are never telemetry fields.
 
 ---
 
-## 7. Current Statement Upload Flow
+## 8. Current Statement Upload Flow
 
 ```mermaid
 sequenceDiagram
@@ -169,31 +280,44 @@ sequenceDiagram
     participant Auth as JWT validation
     participant Storage as File storage service
     participant Disk as Local upload storage
+    participant Telemetry as Logs / metrics / spans
 
     Client->>API: POST /ingest with PDF + optional metadata hints
     API->>Auth: Validate bearer token
     Auth-->>API: Authenticated user context
+    API->>Telemetry: Record ingestion attempt and start span
     API->>API: Validate filename and content type
     API->>API: Read file in chunks with size limit
     API->>Storage: Save validated PDF
     Storage->>Disk: Write generated stored file name
-    Disk-->>Storage: Stored file path
-    Storage-->>API: Stored file name and path
-    API-->>Client: Upload metadata response
+    alt Storage unavailable
+        Disk-->>Storage: OSError
+        Storage-->>API: FileStorageUnavailableError
+        API->>Telemetry: Record storage and ingestion failure
+        API-->>Client: 503 Service Unavailable
+    else Stored
+        Disk-->>Storage: Stored file path
+        Storage-->>API: Stored file name and path
+        API->>Telemetry: Record success, size, and safe business event
+        API-->>Client: 201 upload metadata response
+    end
 ```
 
 Current behavior:
 
 - The API authenticates the caller.
 - The API validates and stores a PDF statement.
-- The API returns upload metadata.
+- Oversized uploads return 413.
+- Invalid uploads return 400.
+- Storage availability failures return 503.
+- The API records bounded ingestion outcomes without filenames or user IDs.
 - Statement metadata persistence and parsing integration are planned next steps.
 
-For the exact API contract, request fields, response shape, and status-code behavior, see [`LLD.md`](LLD.md).
+For the exact API contract and module behavior, see [`LLD.md`](LLD.md).
 
 ---
 
-## 8. Future Full Ingestion and Parsing Flow
+## 9. Future Full Ingestion and Parsing Flow
 
 ```mermaid
 flowchart TD
@@ -219,12 +343,13 @@ Design rules:
 - Bank/account parser should be broad, not card-product-specific, unless necessary.
 - AI fallback is candidate extraction only.
 - Backend validation decides whether data can be persisted.
+- Each meaningful future stage must evaluate safe logs, bounded metrics, and span boundaries using the existing observability foundation.
 
 Detailed parser design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
-## 9. Current Database ERD
+## 10. Current Database ERD
 
 ```mermaid
 erDiagram
@@ -272,11 +397,17 @@ transactions(statement_id, user_id) references statements(id, user_id)
 
 This prevents a transaction for one user from referencing another user's statement.
 
-Detailed table definitions, constraints, and indexes are maintained in [`LLD.md`](LLD.md).
+Database observability currently uses:
+
+- application dependency-health metrics;
+- the `database.health_check` child span;
+- PostgreSQL exporter connection, activity, lock, and database metrics.
+
+Future repository work may add DB spans or slow-query instrumentation, but it must not record SQL text, bind values, credentials, or financial data.
 
 ---
 
-## 10. Future AI and RAG Architecture
+## 11. Future AI and RAG Architecture
 
 ```mermaid
 flowchart LR
@@ -304,10 +435,11 @@ Rules:
 - AI generates explanation from trusted facts and retrieved context.
 - AI must not execute raw SQL.
 - AI must not calculate final financial totals.
+- Prompts, retrieved financial content, and model responses must not be logged by default.
 
 ---
 
-## 11. Future Controlled Agent Flow
+## 12. Future Controlled Agent Flow
 
 ```mermaid
 sequenceDiagram
@@ -339,55 +471,79 @@ The agent cannot directly access repositories or execute arbitrary SQL.
 
 ---
 
-## 12. Deployment View
+## 13. Deployment View
 
-### Current local deployment
+### 13.1 Current local deployment
 
 ```text
 Docker Compose
 ├── app
 ├── db
 ├── identity-provider
-└── migration runner
+├── flyway
+├── upload storage
+└── observability profile
+    ├── otel-collector
+    ├── prometheus
+    ├── grafana
+    ├── tempo
+    └── postgres-exporter
 ```
 
-### Future AWS mapping
+The observability profile is optional. The application must start and process requests when it is disabled.
 
-| Local component | Future AWS equivalent |
+### 13.2 Future cloud mapping
+
+| Local component | Future cloud equivalent |
 |---|---|
-| FastAPI app container | ECS / EC2 |
-| PostgreSQL container | RDS PostgreSQL |
-| Local upload directory | S3 |
+| FastAPI app container | ECS, Kubernetes, or equivalent |
+| PostgreSQL container | Managed PostgreSQL |
+| Local upload directory | Object storage |
 | Local Keycloak | Managed or self-hosted OIDC provider |
-| Docker Compose | ECS task definitions / IaC |
-| Local env file | Secrets Manager / Parameter Store |
+| Prometheus | Managed Prometheus-compatible metrics backend |
+| Tempo | Managed or self-hosted trace backend |
+| OpenTelemetry Collector | Sidecar, daemon, or gateway Collector |
+| Grafana | Managed or self-hosted visualization |
+| Docker Compose | Infrastructure as code / orchestration |
+| Local env file | Secret and parameter management |
 
-Before cloud deployment, introduce a storage abstraction so local filesystem and S3 use the same service interface.
+Before cloud deployment, introduce a storage abstraction so local filesystem and object storage use the same service interface.
 
 ---
 
-## 13. HLD vs LLD Responsibility
+## 14. HLD vs LLD Responsibility
 
 | Document | Responsibility |
 |---|---|
-| `HLD.md` | Major components, system interactions, runtime view, sequence diagrams, ERD, deployment view |
-| `LLD.md` | Module details, current API contracts, configuration, validations, table details, service/repository rules |
-| `PARSING_STRATEGY.md` | Parser-specific design, confidence strategy, AI fallback and manual review policy |
+| `HLD.md` | Major components, system interactions, runtime and observability views, sequence diagrams, ERD, deployment view |
+| `LLD.md` | Module details, API contracts, configuration, telemetry behavior, validations, table details, service/repository rules |
+| `LOCAL_OBSERVABILITY.md` | Local startup, metric/trace inspection, request-ID debugging, and telemetry safety procedures |
+| `PARSING_STRATEGY.md` | Parser-specific design, confidence strategy, AI fallback, and manual review policy |
 | `LEARNING_GUIDE.md` | Learning objectives, learning phases, issue-quality expectations |
 | `PROJECT_REQUIREMENTS.md` | Product scope, functional requirements, non-functional requirements |
 
 ---
 
-## 14. Current Design Summary
+## 15. Current Design Summary
 
 Current backend foundation:
 
 ```text
-FastAPI + Keycloak/OIDC + PostgreSQL + Flyway + local PDF upload + strict CI gates
+FastAPI
++ Keycloak/OIDC
++ PostgreSQL/Flyway
++ local PDF upload
++ structured logs
++ Prometheus metrics
++ OpenTelemetry traces
++ optional local observability stack
++ strict CI gates
 ```
 
-Next architectural step:
+Next product architecture step:
 
 ```text
 Persist statement metadata, then add PDF extraction and parsing pipeline.
 ```
+
+Future feature work must reuse the current observability helpers rather than creating new middleware, metric registries, or tracing providers.
