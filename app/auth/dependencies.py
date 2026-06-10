@@ -1,7 +1,11 @@
 from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordBearer
 
-from app.auth.jwt_validator import JwtValidationError, validate_access_token
+from app.auth.jwt_validator import (
+    IdentityProviderUnavailableError,
+    JwtValidationError,
+    validate_access_token,
+)
 from app.observability.logging import get_logger
 from app.observability.metrics import record_auth_failure
 from app.problem_details import PROBLEM_TYPE_PREFIX, ProblemException
@@ -35,6 +39,13 @@ def get_current_user(token: str | None = Depends(oauth2_scheme)) -> Authenticate
 
     try:
         claims = validate_access_token(token)
+    except IdentityProviderUnavailableError as error:
+        raise ProblemException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            type=f"{PROBLEM_TYPE_PREFIX}identity-provider-unavailable",
+            title="Identity provider unavailable",
+            detail="Authentication could not be completed. Try again later.",
+        ) from error
     except JwtValidationError as error:
         record_auth_failure(AUTH_FAILURE_CREDENTIALS_INVALID)
         logger.info(
