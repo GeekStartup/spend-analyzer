@@ -44,3 +44,88 @@ Every request accepts an incoming `X-Request-ID` or receives a generated UUID. T
 The middleware emits one `http.request` outcome-summary event with method, route template, status, duration, and correlation context. Separate request-start and request-completion events are intentionally avoided.
 
 The logging pipeline removes uncontrolled exception and stack inputs before JSON rendering. Application code records bounded failure categories and exception class names.
+
+## Metrics design
+
+HTTP instrumentation provides request count, grouped status, request and response size, and request duration using route templates.
+
+Custom metrics:
+
+| Metric | Type | Labels |
+|---|---|---|
+| `app_exceptions_total` | Counter | `exception_category` |
+| `app_dependency_health_status` | Gauge | `dependency` |
+| `auth_failures_total` | Counter | `failure_category` |
+| `file_storage_failures_total` | Counter | `failure_category` |
+| `statement_ingestion_attempts_total` | Counter | none |
+| `statement_ingestion_success_total` | Counter | `content_type` |
+| `statement_ingestion_failures_total` | Counter | `failure_category` |
+| `statement_upload_size_bytes` | Histogram | `content_type` |
+
+Metric labels remain bounded. Correlation identifiers, user identifiers, statement references, filenames, paths, and exception messages are not metric labels. Upload-size histogram buckets are expressed in bytes.
+
+## Tracing design
+
+Tracing uses an OpenTelemetry provider, service resource attributes, ratio-based sampling, batch processing, OTLP/gRPC export, FastAPI instrumentation, and outbound `requests` instrumentation.
+
+Manual spans disable automatic exception capture and automatic error status. The safe exception helper records only the exception class name.
+
+Current manual spans:
+
+```text
+statement.ingestion
+database.health_check
+```
+
+## Authentication observability
+
+Bounded authentication failure categories are:
+
+```text
+missing_credentials
+credentials_invalid
+```
+
+Failures return 401 and increment `auth_failures_total`. Authentication material, validation messages, issuers, and identity fields are excluded from telemetry. Successful `/me` requests use baseline HTTP telemetry only.
+
+## Database-health observability
+
+`GET /health/db` creates `database.health_check` and updates the database dependency gauge.
+
+Success:
+
+- HTTP 200;
+- gauge value `1`;
+- span outcome `healthy`;
+- no per-probe success event.
+
+Failure:
+
+- HTTP 503;
+- gauge value `0`;
+- error span status;
+- bounded category `connection_error` or `health_check_failed`;
+- safe warning event;
+- exception class event for database-driver failures.
+
+Connection details, query text, bind values, host details, and raw exception messages are excluded.
+
+## Statement-ingestion observability
+
+The attempt counter increments before validation, and the route creates `statement.ingestion`.
+
+Success records normalized content type, file size, success counter, upload-size observation, succeeded span outcome, and a safe business event.
+
+Bounded failures:
+
+| Category | Meaning | Status |
+|---|---|---:|
+| `upload_too_large` | Configured size exceeded | 413 |
+| `file_validation_or_storage` | Invalid input or validation failure | 400 |
+| `storage_error` | Filesystem unavailable | 503 |
+
+A storage failure also increments `file_storage_failures_total`. Ingestion telemetry excludes original filenames, user identifiers, optional metadata hints, PDF content, and raw exception text.
+
+## File-storage boundary
+
+The storage service translates filesystem failures into `FileStorageUnavailableError`. This prevents operating-system details from being exposed, distinguishes invalid input from unavailable storage, and allows the route to return 503 and update both ingestion and storage metrics. Blocking writes run in a thread pool.
