@@ -7,7 +7,6 @@ from app.auth.dependencies import get_current_user
 def test_get_current_user_returns_authenticated_user(monkeypatch):
     def fake_validate_access_token(token: str):
         assert token == "valid-token"
-
         return {
             "sub": "user-123",
             "preferred_username": "test.user",
@@ -26,7 +25,7 @@ def test_get_current_user_returns_authenticated_user(monkeypatch):
     assert current_user.email == "test.user@example.com"
 
 
-def test_get_current_user_raises_401_for_invalid_token(monkeypatch):
+def test_get_current_user_raises_problem_for_invalid_token(monkeypatch):
     from app.auth.jwt_validator import JwtValidationError
 
     def fake_validate_access_token(token: str):
@@ -41,5 +40,5 @@ def test_get_current_user_raises_401_for_invalid_token(monkeypatch):
         get_current_user(token="invalid-token")
 
     assert error.value.status_code == 401
-    assert error.value.detail == "Invalid authentication credentials"
+    assert error.value.detail == "Valid bearer credentials are required."
     assert error.value.headers == {"WWW-Authenticate": "Bearer"}
