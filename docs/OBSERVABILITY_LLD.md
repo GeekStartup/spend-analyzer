@@ -2,54 +2,137 @@
 
 ## Purpose
 
-This document defines the implementation-level observability design for Spend Analyzer. It complements `LLD.md`; operational commands remain in `LOCAL_OBSERVABILITY.md`.
+This document defines the implementation-level observability design for Spend Analyzer. Operational commands remain in `LOCAL_OBSERVABILITY.md`.
+
+Issue #72 created the shared logging, metrics, tracing, correlation, and local infrastructure. Issue #78 audits existing flows and completes feature-level coverage without adding another observability framework.
 
 ## Application wiring
 
-`app/main.py` configures logging, creates FastAPI, adds request-context middleware, configures tracing, registers business routers, and registers the metrics endpoint last.
+`app/main.py`:
 
-This ordering preserves active trace context, prevents metrics-route shadowing, and excludes metric scrapes from request logs, HTTP metrics, and traces. The application remains usable when metrics or tracing are disabled.
+1. configures structured logging;
+2. creates FastAPI with a lifespan context;
+3. adds request-context middleware;
+4. registers RFC 9457 handlers;
+5. configures tracing;
+6. registers business routers;
+7. registers the metrics endpoint last.
+
+This preserves request and trace context and excludes `/metrics` from request logs, HTTP self-metrics, and traces.
 
 ## Module responsibilities
 
 | Module | Responsibility |
 |---|---|
-| `app/observability/context.py` | Request, trace, and span correlation context |
-| `app/observability/logging.py` | Structured JSON output and safe rendering |
-| `app/observability/middleware.py` | Request ID, duration, outcome event, and safe 500 response |
-| `app/observability/metrics.py` | HTTP and custom application metrics |
-| `app/observability/tracing.py` | OpenTelemetry configuration and manual span helpers |
+| `app/http.py` | Relative request URL and request-ID header |
+| `app/problem_details.py` | RFC 9457 response construction and handlers |
+| `app/observability/context.py` | Request, trace, and span context |
+| `app/observability/logging.py` | JSON logging and safe rendering |
+| `app/observability/middleware.py` | Request ID, duration, HTTP outcome log, safe 500 response |
+| `app/observability/metrics.py` | HTTP and application metrics |
+| `app/observability/tracing.py` | Tracing configuration and safe manual spans |
 
-Business modules reuse these helpers rather than creating additional middleware, registries, or providers.
+Business modules use these components directly. Do not add another logging facade, metrics registry, middleware, or tracing provider.
 
-## Configuration
+## HTTP request logging
 
-```text
-LOG_LEVEL
-LOG_FORMAT
-METRICS_ENABLED
-METRICS_PATH
-TRACING_ENABLED
-OTEL_SERVICE_NAME
-OTEL_EXPORTER_OTLP_ENDPOINT
-OTEL_SAMPLE_RATIO
+Every response carries `X-Request-ID`. Logs also contain `trace_id` and `span_id` when tracing is active.
+
+The middleware emits one `http.request` outcome log per non-metrics request:
+
+```json
+{
+  "event": "http.request",
+  "method": "GET",
+  "url": "/statements/statement-123?page=2",
+  "status_code": 200,
+  "duration_ms": 12.4,
+  "request_id": "request-123"
+}
 ```
 
-The metrics path must be a non-root absolute path and must not conflict with an application route. Local Prometheus currently scrapes `/metrics`. Tracing is disabled by default, and the application does not depend on the optional observability profile.
+`url` is the actual relative path plus optional query string. It excludes scheme, host, port, headers, body, and fragment.
 
-## Request context and logging
+Confidential, credential, authentication, financial-content, and personal-information values must not be designed into path or query parameters. HTTP metrics continue using templated route labels; actual URLs are never metric labels.
 
-Every request accepts an incoming `X-Request-ID` or receives a generated UUID. The identifier is returned on all responses, including generic 500 responses. Active trace and span identifiers are added to logs when tracing is enabled.
+## Logging convention
 
-The middleware emits one `http.request` outcome-summary event with method, route template, status, duration, and correlation context. Separate request-start and request-completion events are intentionally avoided.
+Use the existing `structlog` logger like normal Python logging:
 
-The logging pipeline removes uncontrolled exception and stack inputs before JSON rendering. Application code records bounded failure categories and exception class names.
+```python
+logger.info("Application started", version=settings.app_version)
+logger.warning("Database health check failed", exception_type="OperationalError")
+logger.error("Unexpected storage failure", exception_type="FileStorageError")
+```
 
-## Metrics design
+A useful log contains:
 
-HTTP instrumentation provides request count, grouped status, request and response size, and request duration using route templates.
+- a clear human-readable message;
+- only the safe fields needed for diagnosis;
+- automatic correlation when request-scoped.
 
-Custom metrics:
+Useful fields include operation/stage, dependency, duration, count/size, status code, exception class, and generated statement reference.
+
+Do not log raw exception messages or stack traces by default. They can contain credentials, paths, SQL, bind values, provider payloads, or statement data.
+
+| Level | Use |
+|---|---|
+| DEBUG | Selected checkpoints that add diagnostic information |
+| INFO | Lifecycle, successful business outcomes, expected client rejection |
+| WARNING | Handled dependency/infrastructure failure |
+| ERROR | Unexpected application/internal failure |
+
+Do not log every function entry and exit.
+
+### Current messages
+
+- `Application started` / `Application stopped`
+- `http.request`
+- `Database health check failed`
+- `Database health check returned an unhealthy result`
+- `Authentication failed because credentials were missing`
+- `Authentication failed because credentials were invalid`
+- `JWKS cache miss; retrieving signing keys`
+- `Identity provider key retrieval failed`
+- `Identity provider returned an invalid signing-key response`
+- `Statement upload content read`
+- `Statement ingestion succeeded`
+- `Statement ingestion rejected an invalid PDF`
+- `Statement ingestion rejected an oversized upload`
+- `Statement ingestion failed because file storage is unavailable`
+- `Statement ingestion failed because of an unexpected storage error`
+
+## RFC 9457 Problem Details
+
+All application `4xx` and `5xx` responses use `application/problem+json` and contain:
+
+- `type`
+- `title`
+- `status`
+- `detail`
+- `instance`
+- `request_id`
+- `url`
+
+Example:
+
+```json
+{
+  "type": "urn:spend-analyzer:problem:file-storage-unavailable",
+  "title": "File storage unavailable",
+  "status": 503,
+  "detail": "The uploaded statement could not be stored. Try again later.",
+  "instance": "urn:spend-analyzer:request:request-123",
+  "request_id": "request-123",
+  "url": "/ingest"
+}
+```
+
+The body request ID matches `X-Request-ID`. Protocol headers such as `WWW-Authenticate` and `Allow` are preserved. Validation errors may add a sanitized `errors` array; raw input values are not returned.
+
+Problem types are stable API contracts and are not derived from exceptions or dynamic values.
+
+## Metrics
 
 | Metric | Type | Labels |
 |---|---|---|
@@ -62,70 +145,81 @@ Custom metrics:
 | `statement_ingestion_failures_total` | Counter | `failure_category` |
 | `statement_upload_size_bytes` | Histogram | `content_type` |
 
-Metric labels remain bounded. Correlation identifiers, user identifiers, statement references, filenames, paths, and exception messages are not metric labels. Upload-size histogram buckets are expressed in bytes.
+Labels remain bounded. Never use actual URL, request ID, user ID, statement reference, filename, path, or exception message as a label.
 
-## Tracing design
+## Tracing
 
-Tracing uses an OpenTelemetry provider, service resource attributes, ratio-based sampling, batch processing, OTLP/gRPC export, FastAPI instrumentation, and outbound `requests` instrumentation.
-
-Manual spans disable automatic exception capture and automatic error status. The safe exception helper records only the exception class name.
+Manual spans disable automatic exception recording and automatic exception-derived status. Safe exception events contain only the exception class.
 
 Current manual spans:
 
 ```text
 statement.ingestion
 database.health_check
+identity_provider.jwks_fetch
 ```
 
-## Authentication observability
+Automatic `requests` tracing is suppressed for the JWKS call because it uses a sanitized manual span and must not create duplicate or uncontrolled identity-provider attributes.
 
-Bounded authentication failure categories are:
+## Flow decision matrix
+
+| Flow | Additional telemetry decision |
+|---|---|
+| Startup/shutdown | One INFO lifecycle log each |
+| Successful `/health` | Baseline HTTP telemetry only |
+| Successful `/health/db` | Dependency gauge + manual span; no success log |
+| Failed `/health/db` | WARNING diagnostic + failed span + gauge + RFC 9457 503 |
+| Successful `/me` | Baseline HTTP telemetry only |
+| Missing/invalid credentials | INFO diagnostic + bounded auth metric + RFC 9457 401 |
+| Successful authentication | Baseline HTTP telemetry only |
+| Cached JWKS | No additional telemetry |
+| Remote JWKS success | DEBUG cache-miss + dependency gauge + manual span |
+| Remote JWKS failure | WARNING diagnostic + failed span + gauge + RFC 9457 503 |
+| Successful ingestion | INFO outcome + DEBUG byte count + metrics + span |
+| Invalid PDF | INFO diagnostic + failure metric + failed span + RFC 9457 400 |
+| Oversized upload | INFO diagnostic + failure metric + failed span + RFC 9457 413 |
+| Storage unavailable | WARNING diagnostic + storage/ingestion metrics + failed span + RFC 9457 503 |
+| Internal storage error | ERROR diagnostic + storage/ingestion metrics + failed span + RFC 9457 500 |
+| Internal helpers | No direct telemetry; caller boundary owns it |
+| `/metrics` | Excluded from request logs, HTTP metrics, and traces |
+
+## Bounded categories
+
+Authentication metrics:
 
 ```text
 missing_credentials
 credentials_invalid
 ```
 
-Failures return 401 and increment `auth_failures_total`. Authentication material, validation messages, issuers, and identity fields are excluded from telemetry. Successful `/me` requests use baseline HTTP telemetry only.
+Statement ingestion metrics/span attributes:
 
-## Database-health observability
+```text
+invalid_pdf
+upload_too_large
+storage_unavailable
+storage_internal_error
+```
 
-`GET /health/db` creates `database.health_check` and updates the database dependency gauge.
+Storage metrics:
 
-Success:
+```text
+unavailable
+internal_error
+```
 
-- HTTP 200;
-- gauge value `1`;
-- span outcome `healthy`;
-- no per-probe success event.
+Categories support aggregation. Human-readable logs provide diagnostic context.
 
-Failure:
+## Security exclusions
 
-- HTTP 503;
-- gauge value `0`;
-- error span status;
-- bounded category `connection_error` or `health_check_failed`;
-- safe warning event;
-- exception class event for database-driver failures.
+Do not expose in logs, metrics, traces, or Problem Details:
 
-Connection details, query text, bind values, host details, and raw exception messages are excluded.
+- passwords, API keys, tokens, authorization headers, or claims;
+- raw user IDs, usernames, or email addresses;
+- database URLs, credentials, SQL, or bind values;
+- identity-provider URLs or payloads;
+- original filenames when sensitive;
+- statement content, extracted text, account/card numbers;
+- raw exception messages or stack traces.
 
-## Statement-ingestion observability
-
-The attempt counter increments before validation, and the route creates `statement.ingestion`.
-
-Success records normalized content type, file size, success counter, upload-size observation, succeeded span outcome, and a safe business event.
-
-Bounded failures:
-
-| Category | Meaning | Status |
-|---|---|---:|
-| `upload_too_large` | Configured size exceeded | 413 |
-| `file_validation_or_storage` | Invalid input or validation failure | 400 |
-| `storage_error` | Filesystem unavailable | 503 |
-
-A storage failure also increments `file_storage_failures_total`. Ingestion telemetry excludes original filenames, user identifiers, optional metadata hints, PDF content, and raw exception text.
-
-## File-storage boundary
-
-The storage service translates filesystem failures into `FileStorageUnavailableError`. This prevents operating-system details from being exposed, distinguishes invalid input from unavailable storage, and allows the route to return 503 and update both ingestion and storage metrics. Blocking writes run in a thread pool.
+Generated request IDs and statement references, counts, sizes, durations, configured limits, status codes, bounded categories, and exception class names are allowed when operationally useful.

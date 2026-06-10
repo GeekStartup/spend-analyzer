@@ -2,9 +2,7 @@
 
 ## Purpose
 
-Spend Analyzer provides an optional local observability profile for inspecting application metrics, PostgreSQL metrics, and distributed traces.
-
-The normal application stack does not depend on this profile. Structured JSON logs continue to be written to container stdout.
+Spend Analyzer provides an optional local profile for Prometheus metrics, PostgreSQL metrics, and Tempo traces. Structured JSON logs always go to application stdout.
 
 ## Architecture
 
@@ -13,75 +11,39 @@ FastAPI /metrics -------------------+
                                      +--> Prometheus --> Grafana
 PostgreSQL exporter /metrics -------+
 
-FastAPI OTLP traces
-        |
-        v
-OpenTelemetry Collector --> Tempo --> Grafana
-
-FastAPI structured JSON logs --> container stdout
+FastAPI traces --> Collector --> Tempo --> Grafana
+FastAPI structured logs -----------> container stdout
 ```
 
-Responsibilities:
-
-| Component | Responsibility |
-|---|---|
-| FastAPI | Emits structured logs, exposes application metrics, and creates traces |
-| PostgreSQL exporter | Exposes PostgreSQL activity, connection, lock, and database metrics |
-| Prometheus | Scrapes and stores application and PostgreSQL metrics |
-| OpenTelemetry Collector | Receives, batches, and forwards OTLP traces |
-| Tempo | Stores local traces |
-| Grafana | Provides metric and trace exploration |
-
 ## Configuration
-
-Create the local environment file before using Docker Compose:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Relevant application settings:
-
 ```dotenv
 LOG_LEVEL=INFO
 LOG_FORMAT=json
-
 METRICS_ENABLED=true
 METRICS_PATH=/metrics
-
 TRACING_ENABLED=false
 OTEL_SERVICE_NAME=spend-analyzer-api
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_SAMPLE_RATIO=1.0
 ```
 
-Tracing is disabled by default so the application can run without the optional Collector. Set `TRACING_ENABLED=true` only when the observability profile or another configured OTLP collector is available.
+Use `LOG_LEVEL=DEBUG` temporarily for selected checkpoints such as JWKS cache misses and upload byte counts. DEBUG does not log every function entry/exit.
 
-`METRICS_PATH` must not conflict with an existing FastAPI route. The local Prometheus configuration currently scrapes `/metrics`; changing `METRICS_PATH` also requires changing `metrics_path` in `infra/observability/prometheus.yml`.
+Tracing is disabled by default. Enable it only when the Collector is available.
 
-## Validate configuration
-
-Validate both normal and profile-expanded Compose configuration:
+## Validate and start
 
 ```powershell
 docker compose config --quiet
 docker compose --profile observability config --quiet
 docker compose -f docker-compose.test.yml config --quiet
-```
 
-These checks run in local CI and GitHub Actions.
-
-## Start and stop
-
-Start the complete local stack:
-
-```powershell
 docker compose --profile observability up --build -d
-```
-
-Inspect service state:
-
-```powershell
 docker compose --profile observability ps -a
 ```
 
@@ -98,17 +60,13 @@ tempo
 postgres-exporter
 ```
 
-Flyway is a one-shot migration container and should exit with code `0`.
-
-Stop the stack while preserving PostgreSQL and observability data:
+Stop without deleting volumes:
 
 ```powershell
 docker compose --profile observability down
 ```
 
-Do not add `-v` unless deleting PostgreSQL, Prometheus, Tempo, and Grafana volumes is intentional.
-
-## Local endpoints
+## Endpoints
 
 | Service | URL |
 |---|---|
@@ -116,16 +74,77 @@ Do not add `-v` unless deleting PostgreSQL, Prometheus, Tempo, and Grafana volum
 | Database health | `http://localhost:8000/health/db` |
 | Application metrics | `http://localhost:8000/metrics` |
 | Prometheus | `http://localhost:9090` |
-| Prometheus targets | `http://localhost:9090/targets` |
 | Grafana | `http://localhost:3000` |
 | Tempo readiness | `http://localhost:3200/ready` |
 | PostgreSQL exporter | `http://localhost:9187/metrics` |
 
-Observability ports bind to `127.0.0.1` and are intended for local use only.
+## Inspect logs
 
-## Inspect metrics
+```powershell
+docker compose logs --follow --no-color app
+```
 
-Verify the application endpoint:
+One `http.request` log is emitted per non-metrics request. Its `url` is the actual relative path plus optional query string, with no scheme or host.
+
+| Level | Meaning |
+|---|---|
+| DEBUG | Selected internal diagnostic checkpoint |
+| INFO | Lifecycle, business outcome, expected client rejection |
+| WARNING | Handled dependency/infrastructure failure |
+| ERROR | Unexpected application/internal failure |
+
+Search examples:
+
+```powershell
+docker compose logs --no-color app |
+    Select-String '"event":"Database health check failed"'
+
+docker compose logs --no-color app |
+    Select-String '"event":"Identity provider key retrieval failed"'
+
+docker compose logs --no-color app |
+    Select-String '"statement_reference":"statement-123"'
+```
+
+## Problem Details and request correlation
+
+All `4xx` and `5xx` responses use `application/problem+json`.
+
+```json
+{
+  "type": "urn:spend-analyzer:problem:file-storage-unavailable",
+  "title": "File storage unavailable",
+  "status": 503,
+  "detail": "The uploaded statement could not be stored. Try again later.",
+  "instance": "urn:spend-analyzer:request:request-123",
+  "request_id": "request-123",
+  "url": "/ingest"
+}
+```
+
+The response header also contains:
+
+```text
+X-Request-ID: request-123
+```
+
+Clients should show the request ID on error screens so users can provide it to support.
+
+Debug workflow:
+
+1. copy `request_id` from the body or header;
+2. search logs by request ID;
+3. inspect the business/dependency diagnostic and `http.request` outcome;
+4. use `trace_id` from the log to open the trace in Tempo.
+
+```powershell
+docker compose logs --no-color app |
+    Select-String '"request_id":"<request-id>"'
+```
+
+A failed request may produce one business/dependency diagnostic plus one HTTP outcome log. This is intentional; it is not duplicate request start/end logging.
+
+## Inspect application metrics
 
 ```powershell
 $metrics = (
@@ -139,33 +158,9 @@ $metrics | Select-String "file_storage_failures_total"
 $metrics | Select-String "app_dependency_health_status"
 ```
 
-Call the database health endpoint, then verify the dependency gauge:
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:8000/health/db
-
-(
-    Invoke-WebRequest -UseBasicParsing http://localhost:8000/metrics
-).Content | Select-String "app_dependency_health_status"
-```
-
-Expected healthy sample:
-
-```text
-app_dependency_health_status{dependency="database"} 1.0
-```
-
-In Prometheus, inspect `http://localhost:9090/targets`. Both jobs should be `UP`:
-
-```text
-spend-analyzer-api
-spend-analyzer-postgresql
-```
-
-Useful PromQL examples:
+Useful PromQL:
 
 ```promql
-up
 rate(http_requests_total[5m])
 histogram_quantile(
   0.95,
@@ -177,9 +172,16 @@ file_storage_failures_total
 app_dependency_health_status
 ```
 
-## Inspect PostgreSQL metrics
+Dependency gauge examples:
 
-Verify exporter connectivity:
+```text
+app_dependency_health_status{dependency="database"} 1.0
+app_dependency_health_status{dependency="identity_provider"} 1.0
+```
+
+Actual request URLs never appear as metric labels.
+
+## Inspect PostgreSQL metrics
 
 ```powershell
 $postgresMetrics = (
@@ -196,128 +198,95 @@ Expected connectivity sample:
 pg_up 1
 ```
 
-The exporter provides local visibility into connection counts, activity, locks, transactions, database statistics, table statistics, and selected long-running transaction indicators.
-
-This is the current database-observability path. Future repository/database work should add safe database spans and slow-query instrumentation only after query execution patterns and sanitization rules are mature. SQL text, bind values, credentials, and financial data must not be recorded.
+The exporter remains the database-observability path until real repository/query flows exist. Future database operations should add safe diagnostics at meaningful repository/service boundaries, without SQL, bind values, or raw driver messages.
 
 ## Inspect traces
 
-Set the following in the local `.env`:
+Enable tracing:
 
 ```dotenv
 TRACING_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
-Recreate the application container:
-
 ```powershell
 docker compose --profile observability up -d --force-recreate app
 ```
 
-Generate traces:
+Generate health and authenticated requests, then open Grafana **Explore**, select Tempo, and search service `spend-analyzer-api`.
 
-```powershell
-Invoke-WebRequest -UseBasicParsing http://localhost:8000/health
-Invoke-WebRequest -UseBasicParsing http://localhost:8000/health/db
+Relevant child spans:
+
+```text
+database.health_check
+identity_provider.jwks_fetch
+statement.ingestion
 ```
 
-In Grafana:
+`/metrics` scrapes are excluded from request logs, HTTP metrics, and traces.
 
-1. Open **Explore**.
-2. Select the **Tempo** data source.
-3. Search for service `spend-analyzer-api`.
-4. Open a `GET /health/db` trace.
-5. Confirm the child span `database.health_check`.
+## Failure workflows
 
-Metrics scrapes are excluded from request logs, HTTP metrics, and traces.
+### Database health
 
-## Debug using request ID
+- copy the request ID from the 503 response;
+- search for `Database health check failed` or `Database health check returned an unhealthy result`;
+- inspect duration and exception class when present;
+- inspect the database dependency gauge and `database.health_check` span.
 
-Every HTTP response includes `X-Request-ID`. A caller may also supply this header; the application preserves it.
+### Identity provider
 
-Capture the value from the failed response:
+- search for `Identity provider key retrieval failed` or `Identity provider returned an invalid signing-key response`;
+- inspect exception class and configured timeout where present;
+- inspect the identity-provider dependency gauge and `identity_provider.jwks_fetch` span.
 
-```powershell
-try {
-    Invoke-WebRequest -UseBasicParsing http://localhost:8000/example
-}
-catch {
-    $_.Exception.Response.Headers["X-Request-ID"]
-}
-```
+Identity-provider outages return 503 and are not counted as invalid credentials.
 
-Search container logs for the same value:
+### Statement ingestion
 
-```powershell
-docker compose logs --no-color app |
-    Select-String '"request_id":"<request-id>"'
-```
+| Failure | Log message | Status |
+|---|---|---:|
+| Invalid PDF | `Statement ingestion rejected an invalid PDF` | 400 |
+| Upload too large | `Statement ingestion rejected an oversized upload` | 413 |
+| Storage unavailable | `Statement ingestion failed because file storage is unavailable` | 503 |
+| Internal storage error | `Statement ingestion failed because of an unexpected storage error` | 500 |
 
-When tracing is enabled, the same request-summary or business-event log also contains `trace_id` and `span_id`. Use `trace_id` to locate the corresponding trace in Tempo.
+Use request ID, trace ID, and generated statement reference to correlate signals. Original filename, raw user ID, path, content, and raw exception message are intentionally absent.
 
 ## Safe telemetry rules
 
-### Logs
+Allowed when useful:
 
-Logs may include:
-
-- bounded event names;
-- request ID;
-- route template;
-- HTTP method and status;
-- duration;
+- controlled messages;
+- request/trace/span IDs;
+- relative URL under the API URL contract;
+- method, status, duration;
 - generated statement reference;
 - normalized content type;
-- file size;
-- bounded outcome and failure categories;
-- exception class name.
+- counts, sizes, configured limits;
+- bounded metric/span categories;
+- exception class.
 
-Logs must not include:
+Never record:
 
-- passwords, API keys, tokens, or authorization headers;
-- database URLs or credentials;
+- passwords, secrets, tokens, authorization headers, or claims;
+- raw user IDs, usernames, or emails;
+- database URLs, SQL, or bind values;
+- identity-provider URLs or payloads;
 - raw exception messages or stack traces;
-- original filenames when they may be sensitive;
-- statement contents, extracted text, account numbers, or card numbers;
-- user-provided financial descriptions.
+- original sensitive filenames;
+- statement content or financial identifiers.
 
-The request middleware emits one outcome-summary event rather than duplicate request-start and request-completion events.
-
-### Metrics
-
-Metric labels must be bounded. Never use:
-
-- request ID, trace ID, or span ID;
-- user ID;
-- statement reference;
-- filename;
-- raw route path;
-- exception message;
-- arbitrary institution/account text.
-
-### Traces
-
-Trace attributes and exception events must use safe, bounded values. The application records exception class names without raw exception messages or stack traces. Do not attach SQL text, bind values, tokens, filenames, statement contents, account identifiers, or user-provided financial data.
-
-## Future feature convention
-
-A future backend feature should use the existing foundation instead of creating new middleware or telemetry infrastructure.
+## Future features
 
 For each meaningful operation:
 
-1. Add a safe structured business event for important outcomes.
-2. Add a bounded counter, gauge, or histogram when aggregation is useful.
-3. Add a manual span around a meaningful business or dependency boundary.
-4. Preserve request and trace context.
-5. Record bounded failure categories.
-6. Add tests for telemetry side effects and sensitive-data exclusion.
-7. Update operational debugging notes where applicable.
+1. write a clear normal logger message with a few safe fields;
+2. add a metric only when aggregation is useful;
+3. add a span only around a meaningful business/dependency boundary;
+4. preserve correlation;
+5. add behavioural and data-exclusion tests.
 
-## Centralized log search decision
+Do not add a logging facade, instrument every helper, or log every function entry and exit.
 
-OpenSearch, Elasticsearch/ELK, and Loki are intentionally not deployed in this issue.
-
-Structured JSON logs to stdout are sufficient for the current MVP, while Prometheus and Tempo provide local metric and trace inspection. A centralized log backend should be added only when log volume, retention, multi-instance search, or incident-investigation needs justify its operational cost.
-
-OpenTelemetry keeps future telemetry routing backend-neutral.
+Centralized log storage remains out of scope. Add Loki/OpenSearch/ELK only when retention, multi-instance search, or incident volume justifies it.
