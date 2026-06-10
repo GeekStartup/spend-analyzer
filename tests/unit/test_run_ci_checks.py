@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from scripts.run_ci_checks import build_check_steps, prepare_compose_env_file
 
 
@@ -25,9 +24,11 @@ def test_prepare_compose_env_file_preserves_existing_local_env_after_failure(
     local_env_file = tmp_path / ".env"
     local_env_file.write_text("APP_PORT=8000\n", encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="compose failed"):
-        with prepare_compose_env_file(tmp_path):
-            raise RuntimeError("compose failed")
+    with (
+        pytest.raises(RuntimeError, match="compose failed"),
+        prepare_compose_env_file(tmp_path),
+    ):
+        raise RuntimeError("compose failed")
 
     assert local_env_file.is_file()
     assert local_env_file.read_text(encoding="utf-8") == "APP_PORT=8000\n"
@@ -52,20 +53,24 @@ def test_prepare_compose_env_file_removes_generated_file_after_failure(
     example_env_file = tmp_path / ".env.example"
     example_env_file.write_text("APP_PORT=8000\n", encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="compose failed"):
-        with prepare_compose_env_file(tmp_path):
-            raise RuntimeError("compose failed")
+    with (
+        pytest.raises(RuntimeError, match="compose failed"),
+        prepare_compose_env_file(tmp_path),
+    ):
+        raise RuntimeError("compose failed")
 
     assert not local_env_file.exists()
 
 
 def test_prepare_compose_env_file_requires_an_env_source(tmp_path: Path):
-    with pytest.raises(
-        FileNotFoundError,
-        match=r"Neither \.env nor \.env\.example exists",
+    with (
+        pytest.raises(
+            FileNotFoundError,
+            match=r"Neither \.env nor \.env\.example exists",
+        ),
+        prepare_compose_env_file(tmp_path),
     ):
-        with prepare_compose_env_file(tmp_path):
-            pass
+        pass
 
 
 def test_build_check_steps_uses_prepared_local_env(tmp_path: Path):
