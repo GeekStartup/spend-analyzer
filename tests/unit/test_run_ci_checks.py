@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from scripts.run_ci_checks import build_check_steps, prepare_compose_env_file
 
 
