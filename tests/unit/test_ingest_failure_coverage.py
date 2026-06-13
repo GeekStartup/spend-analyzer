@@ -88,6 +88,4 @@ def test_internal_storage_error_records_bounded_metrics(client, monkeypatch):
     ingestion_metric.assert_called_once_with(
         ingest_routes.INGESTION_FAILURE_STORAGE_INTERNAL_ERROR
     )
-    storage_metric.assert_called_once_with(
-        ingest_routes.STORAGE_FAILURE_INTERNAL_ERROR
-    )
+    storage_metric.assert_called_once_with(ingest_routes.STORAGE_FAILURE_INTERNAL_ERROR)
