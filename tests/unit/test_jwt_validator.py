@@ -14,6 +14,17 @@ from app.auth.jwt_validator import (
 from app.errors import IdentityProviderUnavailableError
 
 
+def signing_key(kid: str = "key-1") -> dict[str, str]:
+    return {
+        "kid": kid,
+        "kty": "RSA",
+        "use": "sig",
+        "alg": "RS256",
+        "n": "modulus",
+        "e": "AQAB",
+    }
+
+
 @pytest.fixture(autouse=True)
 def clear_jwks_cache():
     get_jwks.cache_clear()
@@ -22,8 +33,9 @@ def clear_jwks_cache():
 
 
 def test_get_jwks_fetches_once_and_records_success(monkeypatch):
+    jwks = {"keys": [signing_key()]}
     response = Mock()
-    response.json.return_value = {"keys": [{"kid": "key-1"}]}
+    response.json.return_value = jwks
     response.raise_for_status.return_value = None
     request = Mock(return_value=response)
     metric = Mock()
@@ -32,8 +44,8 @@ def test_get_jwks_fetches_once_and_records_success(monkeypatch):
     monkeypatch.setattr(jwt_validator, "record_dependency_health", metric)
     monkeypatch.setattr(jwt_validator.settings, "oidc_jwks_url", "jwks-url")
 
-    assert get_jwks() == {"keys": [{"kid": "key-1"}]}
-    assert get_jwks() == {"keys": [{"kid": "key-1"}]}
+    assert get_jwks() == jwks
+    assert get_jwks() == jwks
     request.assert_called_once_with("jwks-url", timeout=5)
     metric.assert_called_once_with("identity_provider", True)
 
@@ -81,10 +93,21 @@ def test_get_jwks_non_timeout_failure_omits_timeout_context(monkeypatch):
     metric.assert_called_once_with("identity_provider", False)
 
 
-def test_get_jwks_rejects_invalid_response(monkeypatch):
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"unexpected": []},
+        ["unexpected"],
+        {"keys": []},
+        {"keys": [{"kid": "key-1"}]},
+        {"keys": [{"kid": "key-1", "kty": "EC"}]},
+        {"keys": [{"kid": "key-1", "kty": "RSA", "n": "n", "e": ""}]},
+    ],
+)
+def test_get_jwks_rejects_invalid_or_unusable_response(monkeypatch, payload):
     response = Mock()
     response.raise_for_status.return_value = None
-    response.json.return_value = {"unexpected": []}
+    response.json.return_value = payload
     metric = Mock()
     monkeypatch.setattr(jwt_validator.requests, "get", Mock(return_value=response))
     monkeypatch.setattr(jwt_validator, "record_dependency_health", metric)
@@ -96,20 +119,8 @@ def test_get_jwks_rejects_invalid_response(monkeypatch):
     metric.assert_called_once_with("identity_provider", False)
 
 
-def test_get_jwks_rejects_non_mapping_response(monkeypatch):
-    response = Mock()
-    response.raise_for_status.return_value = None
-    response.json.return_value = ["unexpected"]
-    monkeypatch.setattr(jwt_validator.requests, "get", Mock(return_value=response))
-    monkeypatch.setattr(jwt_validator, "record_dependency_health", Mock())
-
-    with pytest.raises(IdentityProviderUnavailableError) as error:
-        get_jwks()
-
-    assert error.value.context["failure_category"] == "invalid_response"
-
-
-def test_get_signing_key_returns_matching_key(monkeypatch):
+def test_get_signing_key_returns_matching_usable_key(monkeypatch):
+    expected = signing_key("key-2")
     monkeypatch.setattr(
         jwt_validator.jwt,
         "get_unverified_header",
@@ -118,10 +129,10 @@ def test_get_signing_key_returns_matching_key(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_jwks",
-        lambda: {"keys": [{"kid": "key-1"}, {"kid": "key-2"}]},
+        lambda: {"keys": [signing_key("key-1"), expected]},
     )
 
-    assert get_signing_key("value") == {"kid": "key-2"}
+    assert get_signing_key("value") == expected
 
 
 def test_get_signing_key_rejects_malformed_header(monkeypatch):
@@ -141,7 +152,7 @@ def test_get_signing_key_requires_key_id(monkeypatch):
         get_signing_key("value")
 
 
-def test_get_signing_key_requires_matching_key(monkeypatch):
+def test_get_signing_key_requires_matching_usable_key(monkeypatch):
     monkeypatch.setattr(
         jwt_validator.jwt,
         "get_unverified_header",
@@ -150,7 +161,7 @@ def test_get_signing_key_requires_matching_key(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_jwks",
-        lambda: {"keys": [{"kid": "other"}]},
+        lambda: {"keys": [signing_key("other")]},
     )
 
     with pytest.raises(JwtValidationError, match="Matching signing key was not found"):
@@ -162,7 +173,7 @@ def test_validate_access_token_returns_claims(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_signing_key",
-        lambda _value: {"kid": "key-1"},
+        lambda _value: signing_key(),
     )
     decode = Mock(return_value=claims)
     monkeypatch.setattr(jwt_validator.jwt, "decode", decode)
@@ -174,7 +185,7 @@ def test_validate_access_token_maps_expired_signature(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_signing_key",
-        lambda _value: {"kid": "key-1"},
+        lambda _value: signing_key(),
     )
 
     def reject_decode(**_kwargs):
@@ -190,7 +201,7 @@ def test_validate_access_token_maps_decode_failure(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_signing_key",
-        lambda _value: {"kid": "key-1"},
+        lambda _value: signing_key(),
     )
 
     def reject_decode(**_kwargs):
@@ -206,7 +217,7 @@ def test_validate_access_token_requires_subject(monkeypatch):
     monkeypatch.setattr(
         jwt_validator,
         "get_signing_key",
-        lambda _value: {"kid": "key-1"},
+        lambda _value: signing_key(),
     )
     monkeypatch.setattr(jwt_validator.jwt, "decode", lambda **_kwargs: {})
 
