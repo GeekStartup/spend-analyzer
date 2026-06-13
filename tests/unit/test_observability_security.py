@@ -1,12 +1,20 @@
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import Event, ReadableSpan
+from opentelemetry.trace import Status, StatusCode
+from starlette.routing import Route
+from structlog.contextvars import bind_contextvars
 
+from app.http import resolve_route_template, sanitize_query_string
+from app.observability import context
 from app.observability import logging as observability_logging
-from app.observability import metrics
+from app.observability import metrics, tracing
 from app.observability.middleware import RequestContextMiddleware
 from app.problem_details import register_problem_handlers
 
@@ -80,6 +88,76 @@ def test_unhandled_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
         "urn:spend-analyzer:problem:internal-server-error"
     )
     assert "secret" not in str(logger.error.call_args)
+
+
+def test_query_sanitizer_replaces_unsafe_parameter_name():
+    assert sanitize_query_string("unsafe name=value") == (
+        "parameter=%5BREDACTED%5D"
+    )
+
+
+def test_route_template_resolver_skips_invalid_route_entries():
+    route = Route("/known", endpoint=lambda _request: None)
+    route.path = None
+    app = SimpleNamespace(routes=[object(), route])
+    scope = {
+        "type": "http",
+        "app": app,
+        "method": "GET",
+        "path": "/known",
+    }
+
+    assert resolve_route_template(scope) is None
+
+
+def test_request_url_accessor_handles_explicit_context_value():
+    context.clear_request_context()
+    bind_contextvars(url="/safe")
+
+    try:
+        assert context.get_request_url() == "/safe"
+    finally:
+        context.clear_request_context()
+
+
+def test_span_sanitizer_handles_empty_attributes_and_non_exception_event():
+    event = Event("custom", attributes={"key": "value"})
+    span = ReadableSpan(
+        name="custom",
+        resource=Resource.create({}),
+        attributes={},
+        events=(event,),
+        status=Status(StatusCode.UNSET),
+    )
+
+    sanitized = tracing._sanitize_span(span)
+
+    assert sanitized.attributes == {}
+    assert sanitized.events == (event,)
+    assert sanitized.status.status_code is StatusCode.UNSET
+
+
+def test_span_hooks_ignore_non_recording_or_missing_url_inputs():
+    server_span = Mock()
+    server_span.is_recording.return_value = False
+
+    tracing._set_server_span_attributes(server_span, {})
+
+    server_span.set_attribute.assert_not_called()
+
+    client_span = Mock()
+    client_span.is_recording.return_value = False
+
+    tracing._set_client_span_attributes(client_span, SimpleNamespace(url="https://x"))
+
+    client_span.set_attribute.assert_not_called()
+
+    missing_url_span = Mock()
+    missing_url_span.is_recording.return_value = True
+
+    tracing._set_client_span_attributes(missing_url_span, SimpleNamespace(url=None))
+
+    missing_url_span.set_attribute.assert_not_called()
 
 
 def test_application_packages_do_not_import_opentelemetry():
