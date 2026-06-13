@@ -3,6 +3,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from app.http import resolve_route_template, sanitize_query_string
+from app.observability import context, metrics, tracing
+from app.observability import logging as observability_logging
+from app.observability.middleware import RequestContextMiddleware
+from app.problem_details import register_problem_handlers
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from opentelemetry.sdk.resources import Resource
@@ -10,13 +15,6 @@ from opentelemetry.sdk.trace import Event, ReadableSpan
 from opentelemetry.trace import Status, StatusCode
 from starlette.routing import Route
 from structlog.contextvars import bind_contextvars
-
-from app.http import resolve_route_template, sanitize_query_string
-from app.observability import context
-from app.observability import logging as observability_logging
-from app.observability import metrics, tracing
-from app.observability.middleware import RequestContextMiddleware
-from app.problem_details import register_problem_handlers
 
 APPLICATION_PACKAGE_PATHS = (
     Path("app/api"),
