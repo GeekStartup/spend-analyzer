@@ -98,8 +98,7 @@ def test_application_packages_do_not_import_opentelemetry():
                     continue
 
                 if any(
-                    module == "opentelemetry"
-                    or module.startswith("opentelemetry.")
+                    module == "opentelemetry" or module.startswith("opentelemetry.")
                     for module in imported_modules
                 ):
                     violations.append(str(source_path))
