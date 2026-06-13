@@ -26,13 +26,13 @@ def create_test_app() -> FastAPI:
 
     @app.get("/bad-request")
     def bad_request():
-        raise HTTPException(status_code=400, detail="Request value is invalid")
+        raise HTTPException(status_code=400, detail="secret framework detail")
 
     @app.get("/secure")
     def secure():
         raise HTTPException(
             status_code=401,
-            detail="Invalid authentication credentials",
+            detail="secret authentication detail",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -43,7 +43,7 @@ def create_test_app() -> FastAPI:
     @app.get("/application-error")
     def application_error():
         raise InvalidPdfError(
-            "Uploaded file content is not a valid PDF",
+            "secret file detail",
             context={
                 "stage": "validation",
                 "status_code": 999,
@@ -53,18 +53,18 @@ def create_test_app() -> FastAPI:
 
     @app.get("/generic-application-error")
     def generic_application_error():
-        raise ApplicationError("Internal controlled detail")
+        raise ApplicationError("secret internal controlled detail")
 
     @app.get("/boom")
     def boom():
-        raise RuntimeError("sensitive internal detail")
+        raise RuntimeError("postgresql://user:password@host/private")
 
     return app
 
 
-def test_http_exception_uses_problem_details_contract():
+def test_http_exception_uses_controlled_problem_details_contract():
     response = TestClient(create_test_app()).get(
-        "/bad-request?source=manual",
+        "/bad-request?source=secret",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
 
@@ -75,11 +75,12 @@ def test_http_exception_uses_problem_details_contract():
         "type": "urn:spend-analyzer:problem:invalid-request",
         "title": "Invalid request",
         "status": 400,
-        "detail": "Request value is invalid",
+        "detail": "The request is invalid.",
         "instance": "urn:spend-analyzer:request:request-123",
         "request_id": "request-123",
-        "url": "/bad-request?source=manual",
+        "url": "/bad-request?source=%5BREDACTED%5D",
     }
+    assert "secret" not in str(response.json())
 
 
 def test_problem_response_preserves_http_exception_headers():
@@ -88,24 +89,31 @@ def test_problem_response_preserves_http_exception_headers():
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.json()["request_id"] == response.headers[REQUEST_ID_HEADER]
+    assert "secret" not in str(response.json())
 
 
-def test_not_found_uses_problem_details_contract():
-    response = TestClient(create_test_app()).get("/missing?source=test")
+def test_not_found_uses_safe_unmatched_url():
+    response = TestClient(create_test_app()).get("/private-path?source=secret")
 
     assert response.status_code == 404
     body = response.json()
     assert body["type"] == "urn:spend-analyzer:problem:not-found"
     assert body["status"] == 404
-    assert body["url"] == "/missing?source=test"
+    assert body["url"] == "/<unmatched>?source=%5BREDACTED%5D"
+    assert "private-path" not in str(body)
+    assert "secret" not in str(body)
 
 
-def test_method_not_allowed_preserves_allow_header():
-    response = TestClient(create_test_app()).post("/items/123")
+def test_method_not_allowed_preserves_allow_header_and_route_template():
+    response = TestClient(create_test_app()).post("/items/private-item")
 
     assert response.status_code == 405
     assert response.headers["allow"] == "GET"
-    assert response.json()["type"] == ("urn:spend-analyzer:problem:method-not-allowed")
+    assert response.json()["type"] == (
+        "urn:spend-analyzer:problem:method-not-allowed"
+    )
+    assert response.json()["url"] == "/items/{item_id}"
+    assert "private-item" not in str(response.json())
 
 
 def test_unknown_http_status_uses_safe_fallback_detail():
@@ -114,25 +122,28 @@ def test_unknown_http_status_uses_safe_fallback_detail():
     assert response.status_code == 418
     assert response.json()["type"] == "about:blank"
     assert response.json()["title"] == "HTTP error"
-    assert response.json()["detail"] == "HTTP error"
+    assert response.json()["detail"] == "The request could not be completed."
+    assert "unsafe" not in str(response.json())
 
 
-def test_validation_problem_excludes_raw_input():
+def test_validation_problem_excludes_raw_input_and_messages():
     sensitive_input = "account-number-123456789"
 
     response = TestClient(create_test_app()).get(
-        f"/items/{sensitive_input}?page=not-an-integer"
+        f"/items/{sensitive_input}?page=secret-value"
     )
 
     assert response.status_code == 422
     body = response.json()
     assert body["type"] == "urn:spend-analyzer:problem:request-validation"
     assert body["detail"] == "One or more request fields are invalid."
+    assert body["url"] == "/items/{item_id}?page=%5BREDACTED%5D"
     assert body["errors"]
     assert all(
         set(error) == {"code", "location", "message"} for error in body["errors"]
     )
-    assert "input" not in str(body["errors"])
+    assert sensitive_input not in str(body)
+    assert "secret-value" not in str(body)
 
 
 def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
@@ -146,7 +157,7 @@ def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["type"] == "urn:spend-analyzer:problem:invalid-pdf"
-    assert response.json()["detail"] == "Uploaded file content is not a valid PDF"
+    assert response.json()["detail"] == "The uploaded file is not a valid PDF."
     logger.error.assert_called_once_with(
         "Statement ingestion rejected an invalid PDF",
         stage="validation",
@@ -154,6 +165,7 @@ def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
         problem_type="urn:spend-analyzer:problem:invalid-pdf",
         exception_type="InvalidPdfError",
     )
+    assert "secret file detail" not in str(logger.error.call_args)
 
 
 def test_base_application_error_uses_generic_internal_problem():
@@ -166,6 +178,7 @@ def test_base_application_error_uses_generic_internal_problem():
     assert response.json()["detail"] == (
         "Something went wrong. Please try again later."
     )
+    assert "secret" not in str(response.json())
 
 
 def test_unexpected_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
@@ -174,8 +187,8 @@ def test_unexpected_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
     monkeypatch.setattr("app.problem_details.logger", logger)
     monkeypatch.setattr("app.problem_details.record_app_exception", exception_metric)
 
-    response = TestClient(create_test_app(), raise_server_exceptions=False).get(
-        "/boom?source=test",
+    response = TestClient(create_test_app(), raise_server_exceptions=True).get(
+        "/boom?source=secret",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
 
@@ -184,12 +197,12 @@ def test_unexpected_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
         "Something went wrong. Please try again later."
     )
     assert response.json()["request_id"] == "request-123"
-    assert response.json()["url"] == "/boom?source=test"
+    assert response.json()["url"] == "/boom?source=%5BREDACTED%5D"
     exception_metric.assert_called_once_with("unhandled")
     logger.error.assert_called_once()
     assert logger.error.call_args.kwargs["status_code"] == 500
     assert logger.error.call_args.kwargs["exception_type"] == "RuntimeError"
-    assert "sensitive internal detail" not in str(logger.error.call_args)
+    assert "password" not in str(logger.error.call_args)
     assert get_request_id() is None
     assert get_request_url() is None
 
@@ -199,8 +212,8 @@ def test_problem_extensions_cannot_replace_standard_members():
         {
             "type": "http",
             "method": "GET",
-            "path": "/sample",
-            "query_string": b"page=2",
+            "path": "/sample/private",
+            "query_string": b"page=secret",
             "headers": [],
         }
     )
@@ -220,5 +233,6 @@ def test_problem_extensions_cannot_replace_standard_members():
     assert response.status_code == 400
     assert response.headers[REQUEST_ID_HEADER] == "request-override"
     assert b'"status":400' in response.body
-    assert b'"url":"/sample?page=2"' in response.body
+    assert b'"url":"/<unmatched>?page=%5BREDACTED%5D"' in response.body
     assert b'"error_code":"invalid_value"' in response.body
+    assert b"secret" not in response.body
