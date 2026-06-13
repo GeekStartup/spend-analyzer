@@ -90,9 +90,7 @@ def test_unhandled_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
 
 
 def test_query_sanitizer_replaces_unsafe_parameter_name():
-    assert sanitize_query_string("unsafe name=value") == (
-        "parameter=%5BREDACTED%5D"
-    )
+    assert sanitize_query_string("unsafe name=value") == ("parameter=%5BREDACTED%5D")
 
 
 def test_route_template_resolver_skips_invalid_route_entries():
