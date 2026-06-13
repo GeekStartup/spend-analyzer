@@ -32,7 +32,7 @@ def is_otlp_insecure_endpoint(otlp_endpoint: str) -> bool:
 
 def build_excluded_url_pattern(urls: Sequence[str]) -> str | None:
     """Build exact-match patterns for endpoints that must not enter traces."""
-    patterns = [rf"{re.escape(url)}(?:\?.*)?$" for url in urls if url]
+    patterns = [rf"^{re.escape(url)}(?:\?.*)?$" for url in urls if url]
 
     if not patterns:
         return None
@@ -44,7 +44,8 @@ def _sanitize_event(event: Event) -> Event:
     if event.name != _EXCEPTION_EVENT_NAME:
         return event
 
-    exception_type = event.attributes.get(_EXCEPTION_TYPE_ATTRIBUTE)
+    event_attributes = event.attributes or {}
+    exception_type = event_attributes.get(_EXCEPTION_TYPE_ATTRIBUTE)
     attributes = (
         {_EXCEPTION_TYPE_ATTRIBUTE: exception_type}
         if isinstance(exception_type, str)
@@ -58,7 +59,7 @@ def _sanitize_event(event: Event) -> Event:
 
 
 def _sanitize_span(span: ReadableSpan) -> ReadableSpan:
-    attributes: dict[str, Any] = dict(span.attributes)
+    attributes: dict[str, Any] = dict(span.attributes or {})
 
     for key in _URL_ATTRIBUTE_KEYS | _TARGET_ATTRIBUTE_KEYS:
         value = attributes.get(key)
@@ -127,7 +128,7 @@ def configure_tracing(
         insecure=otlp_insecure and is_otlp_insecure_endpoint(otlp_endpoint),
     )
     provider.add_span_processor(
-        BatchSpanProcessor(SanitizingSpanExporter((otlp_exporter)))
+        BatchSpanProcessor(SanitizingSpanExporter(otlp_exporter))
     )
     trace.set_tracer_provider(provider)
 
