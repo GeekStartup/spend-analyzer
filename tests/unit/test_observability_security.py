@@ -70,7 +70,7 @@ def test_unhandled_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
     assert response.json()["detail"] == (
         "Something went wrong. Please try again later."
     )
-    assert response.json()["url"] == "/boom?source=test"
+    assert response.json()["url"] == "/boom?source=%5BREDACTED%5D"
     exception_metric.assert_called_once_with("unhandled")
     logger.error.assert_called_once()
     log_fields = logger.error.call_args.kwargs
