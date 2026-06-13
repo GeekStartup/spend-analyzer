@@ -11,8 +11,14 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.metrics import NoOpMeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import Event, ReadableSpan, Span, TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanProcessor
+from opentelemetry.sdk.trace import (
+    Event,
+    ReadableSpan,
+    Span,
+    SpanProcessor,
+    TracerProvider,
+)
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 from opentelemetry.trace import Status
 
