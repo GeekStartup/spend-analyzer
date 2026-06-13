@@ -69,3 +69,36 @@ def test_configure_tracing_instruments_http_boundaries(monkeypatch):
     set_provider.assert_called_once_with(provider)
     instrument_app.assert_called_once_with(app, excluded_urls="/metrics")
     requests_instance.instrument.assert_called_once_with()
+
+
+def test_configure_tracing_disables_insecure_transport_for_https(monkeypatch):
+    provider = Mock()
+    create_exporter = Mock(return_value=object())
+    requests_instance = Mock()
+
+    monkeypatch.setattr(tracing.Resource, "create", Mock(return_value=object()))
+    monkeypatch.setattr(tracing, "TraceIdRatioBased", Mock(return_value=object()))
+    monkeypatch.setattr(tracing, "TracerProvider", Mock(return_value=provider))
+    monkeypatch.setattr(tracing, "OTLPSpanExporter", create_exporter)
+    monkeypatch.setattr(tracing, "BatchSpanProcessor", Mock(return_value=object()))
+    monkeypatch.setattr(tracing.trace, "set_tracer_provider", Mock())
+    monkeypatch.setattr(tracing.FastAPIInstrumentor, "instrument_app", Mock())
+    monkeypatch.setattr(
+        tracing,
+        "RequestsInstrumentor",
+        Mock(return_value=requests_instance),
+    )
+
+    configure_tracing(
+        FastAPI(),
+        enabled=True,
+        service_name="service",
+        otlp_endpoint="https://collector.example.com:4317",
+        sample_ratio=1.0,
+    )
+
+    create_exporter.assert_called_once_with(
+        endpoint="https://collector.example.com:4317",
+        insecure=False,
+    )
+    requests_instance.instrument.assert_called_once_with()
