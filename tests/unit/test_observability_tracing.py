@@ -125,9 +125,7 @@ def test_server_hook_replaces_path_and_query_values():
 
     attributes = dict(call.args for call in span.set_attribute.call_args_list)
     assert attributes["http.route"] == "/items/{item_id}"
-    assert attributes["http.target"] == (
-        "/items/{item_id}?source=%5BREDACTED%5D"
-    )
+    assert attributes["http.target"] == ("/items/{item_id}?source=%5BREDACTED%5D")
     assert attributes["url.path"] == "/items/{item_id}"
     assert attributes["url.query"] == "source=%5BREDACTED%5D"
     assert "private-item" not in str(attributes)
