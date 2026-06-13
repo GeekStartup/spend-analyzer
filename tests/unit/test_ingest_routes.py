@@ -124,6 +124,4 @@ def test_upload_statement_records_storage_unavailable(client, monkeypatch):
     values["failure"].assert_called_once_with(
         ingest_routes.INGESTION_FAILURE_STORAGE_UNAVAILABLE
     )
-    values["storage"].assert_called_once_with(
-        ingest_routes.STORAGE_FAILURE_UNAVAILABLE
-    )
+    values["storage"].assert_called_once_with(ingest_routes.STORAGE_FAILURE_UNAVAILABLE)
