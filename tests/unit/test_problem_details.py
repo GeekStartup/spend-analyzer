@@ -109,9 +109,7 @@ def test_method_not_allowed_preserves_allow_header_and_route_template():
 
     assert response.status_code == 405
     assert response.headers["allow"] == "GET"
-    assert response.json()["type"] == (
-        "urn:spend-analyzer:problem:method-not-allowed"
-    )
+    assert response.json()["type"] == ("urn:spend-analyzer:problem:method-not-allowed")
     assert response.json()["url"] == "/items/{item_id}"
     assert "private-item" not in str(response.json())
 
