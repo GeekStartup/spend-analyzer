@@ -4,25 +4,16 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
+from app.errors import (
+    FileStorageError,
+    FileStorageUnavailableError,
+    InvalidPdfError,
+    UploadTooLargeError,
+)
+
 PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 PDF_EXTENSION = ".pdf"
 PDF_SIGNATURE = b"%PDF"
-
-
-class FileStorageError(Exception):
-    """Raised when file-storage processing fails unexpectedly."""
-
-
-class InvalidPdfError(FileStorageError):
-    """Raised when an uploaded file does not satisfy the PDF contract."""
-
-
-class FileStorageUnavailableError(FileStorageError):
-    """Raised when the configured storage backend cannot persist a valid upload."""
-
-
-class UploadTooLargeError(FileStorageError):
-    """Raised when uploaded file exceeds the configured maximum size."""
 
 
 def normalize_content_type(content_type: str | None) -> str:

@@ -3,16 +3,13 @@ from typing import Any
 
 import requests
 from jose import ExpiredSignatureError, JWTError, jwt
-from opentelemetry.instrumentation.utils import suppress_http_instrumentation
-from opentelemetry.trace import Span, Status, StatusCode
 
 from app.config import settings
+from app.errors import IdentityProviderUnavailableError
 from app.observability.logging import get_logger
 from app.observability.metrics import record_dependency_health
-from app.observability.tracing import record_exception_safely, start_span
 
 IDENTITY_PROVIDER_DEPENDENCY = "identity_provider"
-JWKS_FETCH_SPAN_NAME = "identity_provider.jwks_fetch"
 JWKS_REQUEST_TIMEOUT_SECONDS = 5
 
 JWKS_FAILURE_REQUEST_FAILED = "request_failed"
@@ -25,37 +22,22 @@ class JwtValidationError(Exception):
     """Raised when JWT validation fails."""
 
 
-class IdentityProviderUnavailableError(Exception):
-    """Raised when signing keys cannot be retrieved safely."""
-
-
-def _record_jwks_failure(
+def _dependency_error_context(
     *,
-    span: Span,
     failure_category: str,
-    error: BaseException,
-    message: str,
-) -> None:
-    record_dependency_health(IDENTITY_PROVIDER_DEPENDENCY, False)
-    record_exception_safely(span, error)
-    span.set_attribute("app.outcome", "failed")
-    span.set_attribute("app.failure.category", failure_category)
-    span.set_status(
-        Status(
-            status_code=StatusCode.ERROR,
-            description=failure_category,
-        )
-    )
-
-    log_fields = {
+    error: Exception,
+) -> dict[str, object]:
+    context: dict[str, object] = {
         "dependency": IDENTITY_PROVIDER_DEPENDENCY,
         "operation": "jwks_fetch",
-        "exception_type": error.__class__.__name__,
+        "failure_category": failure_category,
+        "cause_type": error.__class__.__name__,
     }
-    if isinstance(error, requests.Timeout):
-        log_fields["timeout_seconds"] = JWKS_REQUEST_TIMEOUT_SECONDS
 
-    logger.warning(message, **log_fields)
+    if isinstance(error, requests.Timeout):
+        context["timeout_seconds"] = JWKS_REQUEST_TIMEOUT_SECONDS
+
+    return context
 
 
 def _validate_jwks_response(value: Any) -> dict[str, Any]:
@@ -71,48 +53,37 @@ def _validate_jwks_response(value: Any) -> dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def get_jwks() -> dict[str, Any]:
-    """Fetch and cache the configured identity provider signing keys."""
+    """Fetch and cache the configured identity-provider signing keys."""
     logger.debug("JWKS cache miss; retrieving signing keys")
 
-    with start_span(
-        JWKS_FETCH_SPAN_NAME,
-        attributes={
-            "app.dependency.name": IDENTITY_PROVIDER_DEPENDENCY,
-            "app.operation": "jwks_fetch",
-        },
-    ) as span:
-        try:
-            with suppress_http_instrumentation():
-                response = requests.get(
-                    settings.oidc_jwks_url,
-                    timeout=JWKS_REQUEST_TIMEOUT_SECONDS,
-                )
-            response.raise_for_status()
-            jwks = _validate_jwks_response(response.json())
-        except (requests.JSONDecodeError, TypeError, ValueError) as error:
-            _record_jwks_failure(
-                span=span,
+    try:
+        response = requests.get(
+            settings.oidc_jwks_url,
+            timeout=JWKS_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        jwks = _validate_jwks_response(response.json())
+    except (requests.JSONDecodeError, TypeError, ValueError) as error:
+        record_dependency_health(IDENTITY_PROVIDER_DEPENDENCY, False)
+        raise IdentityProviderUnavailableError(
+            "Authentication could not be completed. Try again later.",
+            context=_dependency_error_context(
                 failure_category=JWKS_FAILURE_INVALID_RESPONSE,
                 error=error,
-                message="Identity provider returned an invalid signing-key response",
-            )
-            raise IdentityProviderUnavailableError(
-                "Identity provider signing-key response is invalid"
-            ) from error
-        except requests.RequestException as error:
-            _record_jwks_failure(
-                span=span,
+            ),
+        ) from error
+    except requests.RequestException as error:
+        record_dependency_health(IDENTITY_PROVIDER_DEPENDENCY, False)
+        raise IdentityProviderUnavailableError(
+            "Authentication could not be completed. Try again later.",
+            context=_dependency_error_context(
                 failure_category=JWKS_FAILURE_REQUEST_FAILED,
                 error=error,
-                message="Identity provider key retrieval failed",
-            )
-            raise IdentityProviderUnavailableError(
-                "Identity provider signing keys are unavailable"
-            ) from error
+            ),
+        ) from error
 
-        record_dependency_health(IDENTITY_PROVIDER_DEPENDENCY, True)
-        span.set_attribute("app.outcome", "succeeded")
-        return jwks
+    record_dependency_health(IDENTITY_PROVIDER_DEPENDENCY, True)
+    return jwks
 
 
 def get_signing_key(token: str) -> dict[str, Any]:
