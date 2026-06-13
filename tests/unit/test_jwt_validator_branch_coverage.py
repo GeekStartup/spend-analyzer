@@ -7,6 +7,15 @@ from app.auth import jwt_validator
 from app.auth.jwt_validator import JwtValidationError
 
 
+def test_unusable_signing_key_rejects_non_mapping_value():
+    assert jwt_validator._is_usable_signing_key("not-a-key") is False
+
+
+def test_jwks_validation_rejects_non_mapping_key_entry():
+    with pytest.raises(ValueError, match="Invalid JWKS response structure"):
+        jwt_validator._validate_jwks_response({"keys": ["not-a-key"]})
+
+
 def test_get_signing_key_requires_key_id(monkeypatch):
     monkeypatch.setattr(
         jwt_validator.jwt,
