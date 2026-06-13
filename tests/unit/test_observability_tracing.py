@@ -32,9 +32,7 @@ def test_otlp_transport_detection():
 
 
 def test_excluded_url_pattern_matches_only_configured_endpoint():
-    pattern = build_excluded_url_pattern(
-        ("https://identity.example.com/realm/keys",)
-    )
+    pattern = build_excluded_url_pattern(("https://identity.example.com/realm/keys",))
 
     assert pattern is not None
     assert re.search(pattern, "https://identity.example.com/realm/keys")
@@ -73,12 +71,9 @@ def test_sanitizing_exporter_removes_url_values_and_exception_details():
     assert result is SpanExportResult.SUCCESS
     exported_span = delegate.export.call_args.args[0][0]
     assert exported_span.attributes["url.full"] == (
-        "https://api.example.com/items?page=%5BREDACTED%5D&"
-        "filter=%5BREDACTED%5D"
+        "https://api.example.com/items?page=%5BREDACTED%5D&filter=%5BREDACTED%5D"
     )
-    assert exported_span.attributes["http.target"] == (
-        "/items?page=%5BREDACTED%5D"
-    )
+    assert exported_span.attributes["http.target"] == ("/items?page=%5BREDACTED%5D")
     assert exported_span.attributes["url.query"] == (
         "page=%5BREDACTED%5D&filter=%5BREDACTED%5D"
     )
@@ -151,9 +146,7 @@ def test_configure_tracing_instruments_safe_http_boundaries(monkeypatch):
     provider.add_span_processor.assert_called_once_with(processor)
     set_provider.assert_called_once_with(provider)
     instrument_app.assert_called_once_with(app, excluded_urls="/metrics")
-    excluded_pattern = requests_instance.instrument.call_args.kwargs[
-        "excluded_urls"
-    ]
+    excluded_pattern = requests_instance.instrument.call_args.kwargs["excluded_urls"]
     assert re.search(
         excluded_pattern,
         "https://identity.example.com/realm/keys",
