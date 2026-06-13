@@ -53,8 +53,9 @@ def test_middleware_binds_only_correlation_context_and_header():
 def test_middleware_logs_safe_success_outcome(monkeypatch):
     logger = Mock()
     monkeypatch.setattr("app.observability.middleware.logger", logger)
+    url = "/context/item-value?source=query-value"
 
-    response = TestClient(create_test_app()).get("/context/item-value?source=query-value")
+    response = TestClient(create_test_app()).get(url)
 
     assert response.status_code == 200
     logger.info.assert_called_once()
