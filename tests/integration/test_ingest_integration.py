@@ -106,7 +106,7 @@ def test_non_pdf_upload_fails():
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Only PDF files are allowed"
+    assert response.json()["detail"] == "The uploaded file is not a valid PDF."
 
 
 @pytest.mark.integration
@@ -127,7 +127,7 @@ def test_empty_pdf_upload_fails():
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Uploaded file must not be empty"
+    assert response.json()["detail"] == "The uploaded file is not a valid PDF."
 
 
 @pytest.mark.integration
@@ -148,4 +148,4 @@ def test_fake_pdf_upload_fails():
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Uploaded file content is not a valid PDF"
+    assert response.json()["detail"] == "The uploaded file is not a valid PDF."
