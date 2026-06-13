@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, field_validator
 from starlette.requests import Request
 
 from app.errors import ApplicationError, InvalidPdfError
@@ -15,6 +16,15 @@ from app.problem_details import (
 )
 
 
+class ValidationPayload(BaseModel):
+    account_name: str
+
+    @field_validator("account_name")
+    @classmethod
+    def reject_account_name(cls, value: str) -> str:
+        raise ValueError(f"Rejected account name: {value}")
+
+
 def create_test_app() -> FastAPI:
     app = FastAPI()
     app.add_middleware(RequestContextMiddleware)
@@ -24,15 +34,19 @@ def create_test_app() -> FastAPI:
     def read_item(item_id: int, page: int = 1):
         return {"item_id": item_id, "page": page}
 
+    @app.post("/validated")
+    def validated(_payload: ValidationPayload):
+        return {"status": "valid"}
+
     @app.get("/bad-request")
     def bad_request():
-        raise HTTPException(status_code=400, detail="Request value is invalid")
+        raise HTTPException(status_code=400, detail="Uncontrolled request detail")
 
     @app.get("/secure")
     def secure():
         raise HTTPException(
             status_code=401,
-            detail="Invalid authentication credentials",
+            detail="Uncontrolled authentication detail",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -43,11 +57,12 @@ def create_test_app() -> FastAPI:
     @app.get("/application-error")
     def application_error():
         raise InvalidPdfError(
-            "Uploaded file content is not a valid PDF",
+            "Uncontrolled PDF detail",
             context={
                 "stage": "validation",
                 "status_code": 999,
                 "url": "/unsafe-override",
+                "unapproved_field": "must-not-be-logged",
             },
         )
 
@@ -57,12 +72,12 @@ def create_test_app() -> FastAPI:
 
     @app.get("/boom")
     def boom():
-        raise RuntimeError("sensitive internal detail")
+        raise RuntimeError("internal diagnostic detail")
 
     return app
 
 
-def test_http_exception_uses_problem_details_contract():
+def test_http_exception_uses_controlled_problem_details():
     response = TestClient(create_test_app()).get(
         "/bad-request?source=manual",
         headers={REQUEST_ID_HEADER: "request-123"},
@@ -75,11 +90,13 @@ def test_http_exception_uses_problem_details_contract():
         "type": "urn:spend-analyzer:problem:invalid-request",
         "title": "Invalid request",
         "status": 400,
-        "detail": "Request value is invalid",
+        "detail": "The request is invalid.",
         "instance": "urn:spend-analyzer:request:request-123",
         "request_id": "request-123",
-        "url": "/bad-request?source=manual",
+        "url": "/bad-request?source=%5BREDACTED%5D",
     }
+    assert "manual" not in response.text
+    assert "Uncontrolled request detail" not in response.text
 
 
 def test_problem_response_preserves_http_exception_headers():
@@ -88,6 +105,7 @@ def test_problem_response_preserves_http_exception_headers():
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.json()["request_id"] == response.headers[REQUEST_ID_HEADER]
+    assert "Uncontrolled authentication detail" not in response.text
 
 
 def test_not_found_uses_problem_details_contract():
@@ -97,7 +115,8 @@ def test_not_found_uses_problem_details_contract():
     body = response.json()
     assert body["type"] == "urn:spend-analyzer:problem:not-found"
     assert body["status"] == 404
-    assert body["url"] == "/missing?source=test"
+    assert body["url"] == "/missing?source=%5BREDACTED%5D"
+    assert "test" not in response.text
 
 
 def test_method_not_allowed_preserves_allow_header():
@@ -105,7 +124,9 @@ def test_method_not_allowed_preserves_allow_header():
 
     assert response.status_code == 405
     assert response.headers["allow"] == "GET"
-    assert response.json()["type"] == ("urn:spend-analyzer:problem:method-not-allowed")
+    assert response.json()["type"] == (
+        "urn:spend-analyzer:problem:method-not-allowed"
+    )
 
 
 def test_unknown_http_status_uses_safe_fallback_detail():
@@ -114,14 +135,15 @@ def test_unknown_http_status_uses_safe_fallback_detail():
     assert response.status_code == 418
     assert response.json()["type"] == "about:blank"
     assert response.json()["title"] == "HTTP error"
-    assert response.json()["detail"] == "HTTP error"
+    assert response.json()["detail"] == "The request could not be completed."
 
 
-def test_validation_problem_excludes_raw_input():
-    sensitive_input = "account-number-123456789"
+def test_validation_problem_excludes_raw_input_and_validator_message():
+    rejected_value = "private-account-name"
 
-    response = TestClient(create_test_app()).get(
-        f"/items/{sensitive_input}?page=not-an-integer"
+    response = TestClient(create_test_app()).post(
+        "/validated",
+        json={"account_name": rejected_value},
     )
 
     assert response.status_code == 422
@@ -132,7 +154,8 @@ def test_validation_problem_excludes_raw_input():
     assert all(
         set(error) == {"code", "location", "message"} for error in body["errors"]
     )
-    assert "input" not in str(body["errors"])
+    assert rejected_value not in response.text
+    assert "Rejected account name" not in response.text
 
 
 def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
@@ -146,7 +169,7 @@ def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["type"] == "urn:spend-analyzer:problem:invalid-pdf"
-    assert response.json()["detail"] == "Uploaded file content is not a valid PDF"
+    assert response.json()["detail"] == "The uploaded file is not a valid PDF."
     logger.error.assert_called_once_with(
         "Statement ingestion rejected an invalid PDF",
         stage="validation",
@@ -154,6 +177,7 @@ def test_application_error_is_mapped_and_logged_centrally(monkeypatch):
         problem_type="urn:spend-analyzer:problem:invalid-pdf",
         exception_type="InvalidPdfError",
     )
+    assert "must-not-be-logged" not in str(logger.error.call_args)
 
 
 def test_base_application_error_uses_generic_internal_problem():
@@ -168,13 +192,13 @@ def test_base_application_error_uses_generic_internal_problem():
     )
 
 
-def test_unexpected_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
+def test_unexpected_exception_is_contained_and_logged_safely(monkeypatch):
     logger = Mock()
     exception_metric = Mock()
     monkeypatch.setattr("app.problem_details.logger", logger)
     monkeypatch.setattr("app.problem_details.record_app_exception", exception_metric)
 
-    response = TestClient(create_test_app(), raise_server_exceptions=False).get(
+    response = TestClient(create_test_app()).get(
         "/boom?source=test",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
@@ -184,12 +208,12 @@ def test_unexpected_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
         "Something went wrong. Please try again later."
     )
     assert response.json()["request_id"] == "request-123"
-    assert response.json()["url"] == "/boom?source=test"
+    assert response.json()["url"] == "/boom?source=%5BREDACTED%5D"
     exception_metric.assert_called_once_with("unhandled")
     logger.error.assert_called_once()
     assert logger.error.call_args.kwargs["status_code"] == 500
     assert logger.error.call_args.kwargs["exception_type"] == "RuntimeError"
-    assert "sensitive internal detail" not in str(logger.error.call_args)
+    assert "internal diagnostic detail" not in str(logger.error.call_args)
     assert get_request_id() is None
     assert get_request_url() is None
 
@@ -220,5 +244,5 @@ def test_problem_extensions_cannot_replace_standard_members():
     assert response.status_code == 400
     assert response.headers[REQUEST_ID_HEADER] == "request-override"
     assert b'"status":400' in response.body
-    assert b'"url":"/sample?page=2"' in response.body
+    assert b'"url":"/sample?page=%5BREDACTED%5D"' in response.body
     assert b'"error_code":"invalid_value"' in response.body
