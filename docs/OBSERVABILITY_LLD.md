@@ -1,39 +1,50 @@
 # Observability Low-Level Design
 
-## Issue #78 tracing decision
+## Issue #78 decisions
 
-Issue #78 uses automatic infrastructure tracing only:
+Issue #78 completes observability for existing application flows without requiring application developers to manage OpenTelemetry spans.
 
-- FastAPI incoming requests are traced by `FastAPIInstrumentor`.
-- Outbound HTTP calls are traced by `RequestsInstrumentor`.
-- Trace and span identifiers are added to request-scoped structured logs.
-- Application modules do not import OpenTelemetry or manually manage spans.
+### Automatic tracing
+
+- Incoming FastAPI requests are instrumented centrally by `FastAPIInstrumentor`.
+- Outbound `requests` calls are instrumented centrally, except configured identity-provider issuer and JWKS endpoints.
+- Application modules do not import OpenTelemetry or manually create spans.
 - Custom business spans are deferred to separate work.
+- Database health uses the incoming HTTP trace plus the bounded dependency-health gauge. Dedicated Psycopg instrumentation is separate work.
 
-Database health uses baseline HTTP tracing plus the bounded database dependency gauge. Dedicated Psycopg automatic instrumentation requires a separate dependency and integration validation.
+Before export, trace telemetry is sanitized:
+
+- query-parameter names may remain, but every value is replaced with `[REDACTED]`;
+- exception events retain only `exception.type`;
+- exception messages, stack traces, and status descriptions are removed;
+- configured identity-provider endpoints are excluded from outbound tracing.
 
 ## Request correlation
 
 The request-context middleware owns:
 
-- `request_id` generation and propagation;
-- relative `url` context containing path and query string, without host;
-- HTTP status and duration logging;
+- request-ID validation, generation, and `X-Request-ID` propagation;
+- relative URL context without scheme, host, port, or fragment;
+- query-parameter value redaction;
+- automatic status and duration capture;
 - INFO outcome logs for successful responses;
-- ERROR outcome logs for `4xx` and `5xx` responses.
+- ERROR outcome logs for `4xx` and `5xx` responses;
+- containment of otherwise unexpected exceptions inside the controlled 500 boundary.
 
-HTTP metrics continue using bounded route templates rather than actual URLs.
+HTTP metrics continue using bounded route templates. Actual URLs are never metric labels.
 
 ## Error handling
 
 Application code raises typed `ApplicationError` subclasses. Central handlers own:
 
 - stable RFC 9457 problem mapping;
-- safe client responses;
+- project-owned client-safe messages;
 - the final diagnostic error log;
-- generic handling for otherwise unhandled exceptions.
+- generic handling for unanticipated failures.
 
-Every problem response includes `type`, `title`, `status`, `detail`, `instance`, `request_id`, and `url`, and preserves protocol headers such as `WWW-Authenticate` and `Allow`.
+Problem responses include `type`, `title`, `status`, `detail`, `instance`, `request_id`, and sanitized `url`. Protocol headers such as `WWW-Authenticate` and `Allow` are preserved.
+
+Framework exception details and Pydantic validator messages are not returned directly. Validation error codes are mapped to controlled messages. Application diagnostic context is restricted to an explicit field allowlist and scalar values.
 
 ## Flow decisions
 
@@ -44,9 +55,10 @@ Every problem response includes `type`, `title`, `status`, `detail`, `instance`,
 | Successful `/health/db` | HTTP telemetry plus database dependency gauge |
 | Failed `/health/db` | Centralized error log, dependency gauge, Problem Details 503 |
 | Successful `/me` | Baseline HTTP telemetry only |
-| Authentication failure | Bounded auth metric, centralized error log, Problem Details 401 |
+| Missing or invalid credentials | Bounded auth metric, centralized error log, Problem Details 401 |
 | Cached JWKS | No additional telemetry |
-| JWKS network request | Dependency gauge plus automatic outbound HTTP tracing |
+| JWKS retrieval | Dependency gauge; identity-provider endpoint excluded from traces |
+| Malformed JWKS | Dependency failure, Problem Details 503, no auth-failure increment |
 | Successful ingestion | Structured business outcome plus bounded metrics |
 | Ingestion or storage failure | Typed exception, bounded metrics, centralized error log and Problem Details |
 | `/metrics` | Excluded from request logs, HTTP metrics, and traces |
@@ -60,10 +72,10 @@ logger.info("Statement ingestion succeeded", file_size_bytes=file_size_bytes)
 logger.debug("Statement upload content read", file_size_bytes=file_size_bytes)
 ```
 
-Request URL, request ID, trace ID, span ID, status, and duration are supplied by common infrastructure where applicable. Do not log every function entry and exit.
+Request ID, sanitized URL, trace ID, span ID, status, and duration are supplied by common infrastructure where applicable. Do not log every function entry and exit.
 
 ## Metrics and safety
 
 Metric labels must remain bounded. Never use actual URLs, request IDs, user IDs, statement references, filenames, paths, or exception messages as labels.
 
-Do not expose passwords, API keys, bearer values, authorization headers, identity claims, raw user identities, database connection strings, SQL, statement contents, provider payloads, or uncontrolled exception text in telemetry or error responses.
+Do not expose passwords, API keys, bearer values, authorization headers, identity claims, raw user identities, database connection strings, SQL, statement contents, provider URLs or payloads, or uncontrolled exception text in logs, traces, metrics, or error responses.
