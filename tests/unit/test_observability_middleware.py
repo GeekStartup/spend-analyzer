@@ -14,43 +14,58 @@ def create_test_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     register_problem_handlers(app)
 
-    @app.get("/context")
-    def context():
-        return {"request_id": get_request_id(), "url": get_request_url()}
+    @app.get("/context/{item_id}")
+    def context(item_id: str):
+        return {
+            "item_id": item_id,
+            "request_id": get_request_id(),
+            "url": get_request_url(),
+        }
 
     @app.get("/bad-request")
     def bad_request():
-        raise HTTPException(status_code=400, detail="Invalid request")
+        raise HTTPException(status_code=400, detail="secret framework detail")
+
+    @app.get("/boom")
+    def boom():
+        raise RuntimeError("postgresql://user:password@host/private")
 
     return app
 
 
-def test_middleware_binds_request_context_and_header():
+def test_middleware_binds_only_correlation_context_and_header():
     response = TestClient(create_test_app()).get(
-        "/context?source=test",
+        "/context/private-item?source=secret",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
 
     assert response.status_code == 200
     assert response.headers[REQUEST_ID_HEADER] == "request-123"
     assert response.json() == {
+        "item_id": "private-item",
         "request_id": "request-123",
-        "url": "/context?source=test",
+        "url": None,
     }
     assert get_request_id() is None
     assert get_request_url() is None
 
 
-def test_middleware_logs_success_as_info(monkeypatch):
+def test_middleware_logs_safe_success_outcome(monkeypatch):
     logger = Mock()
     monkeypatch.setattr("app.observability.middleware.logger", logger)
 
-    response = TestClient(create_test_app()).get("/context")
+    response = TestClient(create_test_app()).get(
+        "/context/private-item?source=secret"
+    )
 
     assert response.status_code == 200
     logger.info.assert_called_once()
     logger.error.assert_not_called()
-    assert logger.info.call_args.kwargs["status_code"] == 200
+    fields = logger.info.call_args.kwargs
+    assert fields["status_code"] == 200
+    assert fields["url"] == "/context/{item_id}?source=%5BREDACTED%5D"
+    assert "private-item" not in str(logger.info.call_args)
+    assert "secret" not in str(logger.info.call_args)
 
 
 def test_middleware_logs_client_error_as_error(monkeypatch):
@@ -63,3 +78,21 @@ def test_middleware_logs_client_error_as_error(monkeypatch):
     logger.error.assert_called_once()
     logger.info.assert_not_called()
     assert logger.error.call_args.kwargs["status_code"] == 400
+
+
+def test_middleware_contains_unexpected_exception(monkeypatch):
+    logger = Mock()
+    monkeypatch.setattr("app.observability.middleware.logger", logger)
+
+    response = TestClient(create_test_app(), raise_server_exceptions=True).get(
+        "/boom?source=secret",
+        headers={REQUEST_ID_HEADER: "request-123"},
+    )
+
+    assert response.status_code == 500
+    assert response.headers[REQUEST_ID_HEADER] == "request-123"
+    assert response.json()["request_id"] == "request-123"
+    assert response.json()["url"] == "/boom?source=%5BREDACTED%5D"
+    logger.error.assert_called_once()
+    assert logger.error.call_args.kwargs["status_code"] == 500
+    assert "password" not in str(logger.error.call_args)
