@@ -47,16 +47,24 @@ def patch_observability(monkeypatch):
         "logger": Mock(),
     }
     monkeypatch.setattr(
-        ingest_routes, "record_statement_ingestion_attempt", values["attempt"]
+        ingest_routes,
+        "record_statement_ingestion_attempt",
+        values["attempt"],
     )
     monkeypatch.setattr(
-        ingest_routes, "record_statement_ingestion_success", values["success"]
+        ingest_routes,
+        "record_statement_ingestion_success",
+        values["success"],
     )
     monkeypatch.setattr(
-        ingest_routes, "record_statement_ingestion_failure", values["failure"]
+        ingest_routes,
+        "record_statement_ingestion_failure",
+        values["failure"],
     )
     monkeypatch.setattr(
-        ingest_routes, "record_file_storage_failure", values["storage"]
+        ingest_routes,
+        "record_file_storage_failure",
+        values["storage"],
     )
     monkeypatch.setattr(ingest_routes, "logger", values["logger"])
     return values
