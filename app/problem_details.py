@@ -27,9 +27,10 @@ from app.observability.metrics import record_app_exception
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 PROBLEM_INSTANCE_PREFIX = "urn:spend-analyzer:request:"
-PROBLEM_TYPE_PREFIX = "urn:spend-analyer:problem:"
+PROBLEM_TYPE_PREFIX = "urn:spend-analyzer:problem:"
 
 logger = get_logger(__name__)
+
 
 @dataclass(frozen=True)
 class ProblemDefinition:
@@ -39,6 +40,7 @@ class ProblemDefinition:
     log_message: str
     detail: str
     headers: Mapping[str, str] | None = None
+
 
 DEFAULT_PROBLEMS = {
     400: ProblemDefinition(
@@ -305,10 +307,6 @@ def create_problem_response(
     )
 
 
-def _safe_http_detail(exception: StarletteHTTPException) -> str:
-    return _problem_definition(exception.status_code).detail
-
-
 async def http_exception_handler(
     request: Request,
     exception: StarletteHTTPException,
@@ -325,7 +323,7 @@ async def http_exception_handler(
     return create_problem_response(
         request=request,
         status_code=exception.status_code,
-        detail=_safe_http_detail(exception),
+        detail=definition.detail,
         type=definition.type,
         title=definition.title,
         headers=exception.headers,
