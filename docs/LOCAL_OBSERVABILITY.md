@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Spend Analyzer provides an optional local profile for Prometheus metrics, PostgreSQL metrics, and Tempo traces. Structured JSON logs always go to application stdout.
+Spend Analyzer provides an optional local profile for Prometheus metrics, PostgreSQL metrics, and Tempo traces. Structured JSON logs are written to application stdout.
 
 ## Architecture
 
@@ -11,15 +11,19 @@ FastAPI /metrics -------------------+
                                      +--> Prometheus --> Grafana
 PostgreSQL exporter /metrics -------+
 
-FastAPI traces --> Collector --> Tempo --> Grafana
-FastAPI structured logs -----------> container stdout
+FastAPI traces --> OpenTelemetry Collector --> Tempo --> Grafana
+FastAPI structured logs ------------------------------> stdout
 ```
 
 ## Configuration
 
+Create the local environment file:
+
 ```powershell
 Copy-Item .env.example .env
 ```
+
+Relevant settings:
 
 ```dotenv
 LOG_LEVEL=INFO
@@ -32,7 +36,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_SAMPLE_RATIO=1.0
 ```
 
-Use `LOG_LEVEL=DEBUG` temporarily for selected checkpoints such as JWKS cache misses and upload byte counts. DEBUG does not log every function entry/exit.
+Use `LOG_LEVEL=DEBUG` only when selected internal checkpoints are needed. The application does not log every function entry and exit.
 
 Tracing is disabled by default. Enable it only when the Collector is available.
 
@@ -84,23 +88,46 @@ docker compose --profile observability down
 docker compose logs --follow --no-color app
 ```
 
-One `http.request` log is emitted per non-metrics request. Its `url` is the actual relative path plus optional query string, with no scheme or host.
+One `http.request` outcome log is emitted for each non-metrics request.
+
+Its `url` field is a safe relative request target:
+
+- dynamic path values are replaced by the resolved route template;
+- query parameter names may be retained;
+- every query parameter value is replaced with `[REDACTED]`;
+- scheme, host, port, fragment, headers, and body are excluded.
+
+Example:
+
+```json
+{
+  "event": "http.request",
+  "method": "GET",
+  "url": "/items/{item_id}?source=%5BREDACTED%5D",
+  "status_code": 200,
+  "duration_ms": 12.4,
+  "request_id": "request-123",
+  "trace_id": "...",
+  "span_id": "..."
+}
+```
+
+Logging policy:
 
 | Level | Meaning |
 |---|---|
 | DEBUG | Selected internal diagnostic checkpoint |
-| INFO | Lifecycle, business outcome, expected client rejection |
-| WARNING | Handled dependency/infrastructure failure |
-| ERROR | Unexpected application/internal failure |
+| INFO | Lifecycle, successful business outcome, and `2xx` request outcome |
+| ERROR | Controlled failure diagnostic and `4xx` or `5xx` request outcome |
 
-Search examples:
+Useful searches:
 
 ```powershell
 docker compose logs --no-color app |
     Select-String '"event":"Database health check failed"'
 
 docker compose logs --no-color app |
-    Select-String '"event":"Identity provider key retrieval failed"'
+    Select-String '"event":"Identity provider operation failed"'
 
 docker compose logs --no-color app |
     Select-String '"statement_reference":"statement-123"'
@@ -108,7 +135,7 @@ docker compose logs --no-color app |
 
 ## Problem Details and request correlation
 
-All `4xx` and `5xx` responses use `application/problem+json`.
+All application and framework `4xx` and `5xx` responses use `application/problem+json`.
 
 ```json
 {
@@ -122,27 +149,25 @@ All `4xx` and `5xx` responses use `application/problem+json`.
 }
 ```
 
-The response header also contains:
+The response also contains:
 
 ```text
 X-Request-ID: request-123
 ```
 
-Clients should show the request ID on error screens so users can provide it to support.
-
 Debug workflow:
 
-1. copy `request_id` from the body or header;
-2. search logs by request ID;
-3. inspect the business/dependency diagnostic and `http.request` outcome;
-4. use `trace_id` from the log to open the trace in Tempo.
+1. copy `request_id` from the response body or header;
+2. search application logs by request ID;
+3. inspect the controlled diagnostic event and final `http.request` event;
+4. when tracing is enabled, use `trace_id` from the log to open the request trace in Tempo.
 
 ```powershell
 docker compose logs --no-color app |
     Select-String '"request_id":"<request-id>"'
 ```
 
-A failed request may produce one business/dependency diagnostic plus one HTTP outcome log. This is intentional; it is not duplicate request start/end logging.
+A failed request can produce one controlled diagnostic log plus one HTTP outcome log. This is intentional and is not duplicate request start/end logging.
 
 ## Inspect application metrics
 
@@ -179,7 +204,7 @@ app_dependency_health_status{dependency="database"} 1.0
 app_dependency_health_status{dependency="identity_provider"} 1.0
 ```
 
-Actual request URLs never appear as metric labels.
+HTTP metrics use bounded route templates. Actual paths, query values, request IDs, user IDs, and exception messages never appear as metric labels.
 
 ## Inspect PostgreSQL metrics
 
@@ -198,7 +223,7 @@ Expected connectivity sample:
 pg_up 1
 ```
 
-The exporter remains the database-observability path until real repository/query flows exist. Future database operations should add safe diagnostics at meaningful repository/service boundaries, without SQL, bind values, or raw driver messages.
+The PostgreSQL exporter remains the database-observability path until real repository/query flows justify dedicated instrumentation. Do not record SQL, bind values, credentials, or raw driver messages.
 
 ## Inspect traces
 
@@ -209,19 +234,23 @@ TRACING_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
+Recreate the application container:
+
 ```powershell
 docker compose --profile observability up -d --force-recreate app
 ```
 
-Generate health and authenticated requests, then open Grafana **Explore**, select Tempo, and search service `spend-analyzer-api`.
+Generate health, authentication, and ingestion requests. In Grafana **Explore**, select Tempo and search for service `spend-analyzer-api`.
 
-Relevant child spans:
+Issue #78 uses automatic infrastructure tracing:
 
-```text
-database.health_check
-identity_provider.jwks_fetch
-statement.ingestion
-```
+- incoming FastAPI requests produce server spans;
+- supported outbound `requests` calls produce client spans;
+- configured identity-provider issuer and JWKS endpoints are excluded from generic outbound tracing;
+- application routes and services do not create manual business or dependency spans;
+- custom business spans are deferred to separate work.
+
+The tracing pipeline sanitizes completed spans before batching and export. Raw path values, query values, credentials, exception messages, stack traces, and status descriptions are not exported.
 
 `/metrics` scrapes are excluded from request logs, HTTP metrics, and traces.
 
@@ -230,17 +259,18 @@ statement.ingestion
 ### Database health
 
 - copy the request ID from the 503 response;
-- search for `Database health check failed` or `Database health check returned an unhealthy result`;
-- inspect duration and exception class when present;
-- inspect the database dependency gauge and `database.health_check` span.
+- search for `Database health check failed`;
+- inspect `failure_category`, `cause_type`, and the database dependency gauge;
+- open the automatic `GET /health/db` server trace using the correlated `trace_id`.
 
 ### Identity provider
 
-- search for `Identity provider key retrieval failed` or `Identity provider returned an invalid signing-key response`;
-- inspect exception class and configured timeout where present;
-- inspect the identity-provider dependency gauge and `identity_provider.jwks_fetch` span.
+- search for `Identity provider operation failed`;
+- inspect `failure_category`, `cause_type`, and `timeout_seconds` when present;
+- inspect the identity-provider dependency gauge;
+- correlate through the request ID and automatic incoming request trace.
 
-Identity-provider outages return 503 and are not counted as invalid credentials.
+Identity-provider endpoints are excluded from generic outbound tracing to prevent provider URLs, payload-derived values, or uncontrolled exception details from entering spans. Identity-provider outages return 503 and do not increment invalid-credential metrics.
 
 ### Statement ingestion
 
@@ -251,26 +281,26 @@ Identity-provider outages return 503 and are not counted as invalid credentials.
 | Storage unavailable | `Statement ingestion failed because file storage is unavailable` | 503 |
 | Internal storage error | `Statement ingestion failed because of an unexpected storage error` | 500 |
 
-Use request ID, trace ID, and generated statement reference to correlate signals. Original filename, raw user ID, path, content, and raw exception message are intentionally absent.
+Use request ID, trace ID, and generated statement reference to correlate ingestion signals. Original filenames, raw user IDs, request path values, file content, and raw exception messages are intentionally absent.
 
 ## Safe telemetry rules
 
-Allowed when useful:
+Allowed when operationally useful:
 
-- controlled messages;
-- request/trace/span IDs;
-- relative URL under the API URL contract;
-- method, status, duration;
+- controlled event messages;
+- request, trace, and span identifiers;
+- safe route templates and redacted query values;
+- HTTP method, status, and duration;
 - generated statement reference;
 - normalized content type;
-- counts, sizes, configured limits;
-- bounded metric/span categories;
-- exception class.
+- counts, sizes, configured limits, and bounded categories;
+- exception class name.
 
 Never record:
 
 - passwords, secrets, tokens, authorization headers, or claims;
-- raw user IDs, usernames, or emails;
+- raw user IDs, usernames, or email addresses;
+- concrete path values or query values;
 - database URLs, SQL, or bind values;
 - identity-provider URLs or payloads;
 - raw exception messages or stack traces;
@@ -281,12 +311,12 @@ Never record:
 
 For each meaningful operation:
 
-1. write a clear normal logger message with a few safe fields;
-2. add a metric only when aggregation is useful;
-3. add a span only around a meaningful business/dependency boundary;
-4. preserve correlation;
-5. add behavioural and data-exclusion tests.
+1. write a clear structured log with a small set of safe fields;
+2. add a metric only when aggregation is operationally useful;
+3. add a custom span only around a meaningful business or dependency boundary;
+4. preserve request and trace correlation;
+5. add behavioural and sensitive-data exclusion tests.
 
-Do not add a logging facade, instrument every helper, or log every function entry and exit.
+Do not add another logging facade, instrument every helper, or log every function entry and exit.
 
-Centralized log storage remains out of scope. Add Loki/OpenSearch/ELK only when retention, multi-instance search, or incident volume justifies it.
+Centralized log storage remains out of scope. Add Loki, OpenSearch, or ELK only when retention, multi-instance search, or incident volume justifies the operational cost.
