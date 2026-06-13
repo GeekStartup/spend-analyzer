@@ -217,7 +217,7 @@ def _problem_definition(status_code: int) -> ProblemDefinition:
         status_code,
         ProblemDefinition(
             status_code=status_code,
-            type="about:blank",
+            type=f"{PROBLEM_TYPE_PREFIX}http-error",
             title="HTTP error",
             log_message="HTTP request rejected",
             detail="The request could not be completed.",
