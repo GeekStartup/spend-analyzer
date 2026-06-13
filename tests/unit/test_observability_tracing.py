@@ -44,12 +44,17 @@ def test_excluded_url_pattern_matches_only_configured_endpoint():
 def test_sanitizing_processor_cleans_span_before_delegate():
     delegate = Mock()
     processor = SanitizingSpanProcessor(delegate)
+    unsafe_url = (
+        "https://span-user:span-password@api.example.com:8443/"
+        "items/private?page=2"
+    )
     span = ReadableSpan(
         name="GET /items/{item_id}",
         resource=Resource.create({}),
         attributes={
             "http.route": "/items/{item_id}",
-            "url.full": "https://api.example.com/items/private?page=2",
+            "http.url": unsafe_url,
+            "url.full": unsafe_url,
             "http.target": "/items/private?page=2",
             "url.path": "/items/private",
             "url.query": "page=2&filter=private",
@@ -70,10 +75,12 @@ def test_sanitizing_processor_cleans_span_before_delegate():
     processor.on_end(span)
 
     exported_span = delegate.on_end.call_args.args[0]
-    assert exported_span.attributes["url.full"] == (
-        "https://api.example.com/items/{item_id}"
+    expected_url = (
+        "https://api.example.com:8443/items/{item_id}"
         "?page=%5BREDACTED%5D&filter=%5BREDACTED%5D"
     )
+    assert exported_span.attributes["http.url"] == expected_url
+    assert exported_span.attributes["url.full"] == expected_url
     assert exported_span.attributes["http.target"] == (
         "/items/{item_id}?page=%5BREDACTED%5D&filter=%5BREDACTED%5D"
     )
@@ -83,7 +90,8 @@ def test_sanitizing_processor_cleans_span_before_delegate():
     }
     assert exported_span.status.status_code is StatusCode.ERROR
     assert exported_span.status.description is None
-    assert "password" not in str(exported_span.attributes)
+    assert "span-user" not in str(exported_span.attributes)
+    assert "span-password" not in str(exported_span.attributes)
     assert "password" not in str(exported_span.events)
 
 

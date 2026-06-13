@@ -68,11 +68,11 @@ def _sanitize_event(event: Event) -> Event:
 
 
 def _safe_full_url(value: str, safe_path: str, safe_query: str) -> str:
-    parsed = urlsplit(value)
+    sanitized = urlsplit(sanitize_url(value))
     return urlunsplit(
         (
-            parsed.scheme,
-            parsed.netloc,
+            sanitized.scheme,
+            sanitized.netloc,
             safe_path,
             safe_query,
             "",

@@ -1,4 +1,3 @@
-import traceback
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -243,28 +242,6 @@ def _safe_application_context(exception: ApplicationError) -> dict[str, object]:
     }
 
 
-def _safe_stack_frames(exception: Exception) -> list[dict[str, object]]:
-    frames: list[dict[str, object]] = []
-
-    for frame in traceback.extract_tb(exception.__traceback__):
-        parts = frame.filename.replace("\\", "/").split("/")
-        if "app" not in parts:
-            continue
-
-        app_index = len(parts) - 1 - parts[::-1].index("app")
-        module_parts = parts[app_index:]
-        module_parts[-1] = module_parts[-1].removesuffix(".py")
-        frames.append(
-            {
-                "module": ".".join(module_parts),
-                "function": frame.name,
-                "line": frame.lineno,
-            }
-        )
-
-    return frames[-8:]
-
-
 def create_problem_response(
     *,
     request: Request,
@@ -409,7 +386,6 @@ async def handle_unexpected_exception(
         problem_type=definition.type,
         exception_type=exception.__class__.__name__,
         exception_module=exception.__class__.__module__,
-        stack_frames=_safe_stack_frames(exception),
     )
 
     return create_problem_response(

@@ -86,6 +86,9 @@ def test_unhandled_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
     assert log_fields["problem_type"] == (
         "urn:spend-analyzer:problem:internal-server-error"
     )
+    assert "stack_frames" not in log_fields
+    assert "exc_info" not in log_fields
+    assert "stack_info" not in log_fields
     assert "secret" not in str(logger.error.call_args)
 
 
