@@ -9,6 +9,7 @@ from starlette.types import ASGIApp
 from app.http import REQUEST_ID_HEADER, get_relative_url
 from app.observability.context import bind_request_context, clear_request_context
 from app.observability.logging import get_logger
+from app.problem_details import handle_unexpected_exception
 
 REQUEST_ID_MAX_LENGTH = 128
 METRICS_ROUTE_PATH = "/metrics"
@@ -67,14 +68,18 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception as error:
+            response = await handle_unexpected_exception(request, error)
+            response.headers[REQUEST_ID_HEADER] = request_id
+
             if should_log:
                 _log_http_request(
                     method=request.method,
                     status_code=500,
                     duration_ms=round((perf_counter() - started_at) * 1000, 2),
                 )
-            raise
+
+            return response
         else:
             response.headers[REQUEST_ID_HEADER] = request_id
 

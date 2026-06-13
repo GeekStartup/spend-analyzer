@@ -27,10 +27,9 @@ from app.observability.metrics import record_app_exception
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 PROBLEM_INSTANCE_PREFIX = "urn:spend-analyzer:request:"
-PROBLEM_TYPE_PREFIX = "urn:spend-analyzer:problem:"
+PROBLEM_TYPE_PREFIX = "urn:spend-analyer:problem:"
 
 logger = get_logger(__name__)
-
 
 @dataclass(frozen=True)
 class ProblemDefinition:
@@ -38,9 +37,8 @@ class ProblemDefinition:
     type: str
     title: str
     log_message: str
-    detail: str | None = None
+    detail: str
     headers: Mapping[str, str] | None = None
-
 
 DEFAULT_PROBLEMS = {
     400: ProblemDefinition(
@@ -48,42 +46,49 @@ DEFAULT_PROBLEMS = {
         type=f"{PROBLEM_TYPE_PREFIX}invalid-request",
         title="Invalid request",
         log_message="HTTP request rejected",
+        detail="The request is invalid.",
     ),
     401: ProblemDefinition(
         status_code=401,
         type=f"{PROBLEM_TYPE_PREFIX}invalid-credentials",
         title="Authentication failed",
         log_message="HTTP request rejected",
+        detail="Valid bearer credentials are required.",
     ),
     403: ProblemDefinition(
         status_code=403,
         type=f"{PROBLEM_TYPE_PREFIX}forbidden",
         title="Access forbidden",
         log_message="HTTP request rejected",
+        detail="Access to this resource is forbidden.",
     ),
     404: ProblemDefinition(
         status_code=404,
         type=f"{PROBLEM_TYPE_PREFIX}not-found",
         title="Resource not found",
         log_message="HTTP request rejected",
+        detail="The requested resource was not found.",
     ),
     405: ProblemDefinition(
         status_code=405,
         type=f"{PROBLEM_TYPE_PREFIX}method-not-allowed",
         title="Method not allowed",
         log_message="HTTP request rejected",
+        detail="The request method is not allowed for this resource.",
     ),
     413: ProblemDefinition(
         status_code=413,
         type=f"{PROBLEM_TYPE_PREFIX}upload-too-large",
         title="Upload too large",
         log_message="HTTP request rejected",
+        detail="The uploaded file exceeds the maximum allowed size.",
     ),
     422: ProblemDefinition(
         status_code=422,
         type=f"{PROBLEM_TYPE_PREFIX}request-validation",
         title="Request validation failed",
         log_message="Request validation failed",
+        detail="One or more request fields are invalid.",
     ),
     500: ProblemDefinition(
         status_code=500,
@@ -97,6 +102,7 @@ DEFAULT_PROBLEMS = {
         type=f"{PROBLEM_TYPE_PREFIX}service-unavailable",
         title="Service unavailable",
         log_message="Required service is unavailable",
+        detail="A required service is temporarily unavailable.",
     ),
 }
 
@@ -122,6 +128,7 @@ APPLICATION_PROBLEMS: dict[type[ApplicationError], ProblemDefinition] = {
         type=f"{PROBLEM_TYPE_PREFIX}database-unavailable",
         title="Database unavailable",
         log_message="Database health check failed",
+        detail="The database health check could not be completed.",
     ),
     IdentityProviderUnavailableError: ProblemDefinition(
         status_code=503,
@@ -135,12 +142,14 @@ APPLICATION_PROBLEMS: dict[type[ApplicationError], ProblemDefinition] = {
         type=f"{PROBLEM_TYPE_PREFIX}invalid-pdf",
         title="Invalid PDF",
         log_message="Statement ingestion rejected an invalid PDF",
+        detail="The uploaded file is not a valid PDF.",
     ),
     UploadTooLargeError: ProblemDefinition(
         status_code=413,
         type=f"{PROBLEM_TYPE_PREFIX}upload-too-large",
         title="Upload too large",
         log_message="Statement ingestion rejected an oversized upload",
+        detail="The uploaded file exceeds the maximum allowed size.",
     ),
     FileStorageUnavailableError: ProblemDefinition(
         status_code=503,
@@ -159,18 +168,28 @@ APPLICATION_PROBLEMS: dict[type[ApplicationError], ProblemDefinition] = {
     ApplicationError: DEFAULT_PROBLEMS[500],
 }
 
-_RESERVED_LOG_FIELDS = {
-    "event",
-    "exception_module",
-    "exception_type",
-    "level",
-    "problem_type",
-    "request_id",
-    "span_id",
-    "status_code",
-    "timestamp",
-    "trace_id",
-    "url",
+_SAFE_APPLICATION_CONTEXT_FIELDS = {
+    "cause_type",
+    "configured_max_size_bytes",
+    "count",
+    "dependency",
+    "failure_category",
+    "file_size_bytes",
+    "operation",
+    "stage",
+    "statement_reference",
+    "timeout_seconds",
+}
+_SAFE_CONTEXT_VALUE_TYPES = (str, int, float, bool)
+_VALIDATION_MESSAGES = {
+    "missing": "Field is required.",
+    "extra_forbidden": "Unexpected field.",
+    "greater_than": "Value is too small.",
+    "greater_than_equal": "Value is too small.",
+    "less_than": "Value is too large.",
+    "less_than_equal": "Value is too large.",
+    "string_too_short": "Value is too short.",
+    "string_too_long": "Value is too long.",
 }
 
 
@@ -199,6 +218,7 @@ def _problem_definition(status_code: int) -> ProblemDefinition:
             type="about:blank",
             title="HTTP error",
             log_message="HTTP request rejected",
+            detail="The request could not be completed.",
         ),
     )
 
@@ -216,7 +236,8 @@ def _safe_application_context(exception: ApplicationError) -> dict[str, object]:
     return {
         key: value
         for key, value in exception.context.items()
-        if key not in _RESERVED_LOG_FIELDS
+        if key in _SAFE_APPLICATION_CONTEXT_FIELDS
+        and isinstance(value, _SAFE_CONTEXT_VALUE_TYPES)
     }
 
 
@@ -285,10 +306,7 @@ def create_problem_response(
 
 
 def _safe_http_detail(exception: StarletteHTTPException) -> str:
-    if isinstance(exception.detail, str):
-        return exception.detail
-
-    return _problem_definition(exception.status_code).title
+    return _problem_definition(exception.status_code).detail
 
 
 async def http_exception_handler(
@@ -314,6 +332,10 @@ async def http_exception_handler(
     )
 
 
+def _validation_message(error_type: str) -> str:
+    return _VALIDATION_MESSAGES.get(error_type, "Invalid value.")
+
+
 def _sanitized_validation_errors(
     exception: RequestValidationError,
 ) -> list[dict[str, Any]]:
@@ -321,7 +343,7 @@ def _sanitized_validation_errors(
         {
             "code": error["type"],
             "location": list(error["loc"]),
-            "message": error["msg"],
+            "message": _validation_message(error["type"]),
         }
         for error in exception.errors()
     ]
@@ -345,7 +367,7 @@ async def request_validation_exception_handler(
     return create_problem_response(
         request=request,
         status_code=definition.status_code,
-        detail="One or more request fields are invalid.",
+        detail=definition.detail,
         type=definition.type,
         title=definition.title,
         extensions={"errors": errors},
@@ -369,14 +391,14 @@ async def application_exception_handler(
     return create_problem_response(
         request=request,
         status_code=definition.status_code,
-        detail=definition.detail or exception.detail,
+        detail=definition.detail,
         type=definition.type,
         title=definition.title,
         headers=definition.headers,
     )
 
 
-async def unexpected_exception_handler(
+async def handle_unexpected_exception(
     request: Request,
     exception: Exception,
 ) -> JSONResponse:
@@ -395,10 +417,17 @@ async def unexpected_exception_handler(
     return create_problem_response(
         request=request,
         status_code=definition.status_code,
-        detail=definition.detail or "Something went wrong. Please try again later.",
+        detail=definition.detail,
         type=definition.type,
         title=definition.title,
     )
+
+
+async def unexpected_exception_handler(
+    request: Request,
+    exception: Exception,
+) -> JSONResponse:
+    return await handle_unexpected_exception(request, exception)
 
 
 def register_problem_handlers(app: FastAPI) -> None:
