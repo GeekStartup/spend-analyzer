@@ -105,9 +105,7 @@ def test_method_not_allowed_preserves_allow_header():
 
     assert response.status_code == 405
     assert response.headers["allow"] == "GET"
-    assert response.json()["type"] == (
-        "urn:spend-analyzer:problem:method-not-allowed"
-    )
+    assert response.json()["type"] == ("urn:spend-analyzer:problem:method-not-allowed")
 
 
 def test_unknown_http_status_uses_safe_fallback_detail():
