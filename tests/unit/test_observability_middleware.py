@@ -20,14 +20,18 @@ def create_test_app() -> FastAPI:
 
     @app.get("/bad-request")
     def bad_request():
-        raise HTTPException(status_code=400, detail="Invalid request")
+        raise HTTPException(status_code=400, detail="Uncontrolled detail")
+
+    @app.get("/boom")
+    def boom():
+        raise RuntimeError("internal diagnostic detail")
 
     return app
 
 
-def test_middleware_binds_request_context_and_header():
+def test_middleware_binds_sanitized_request_context_and_header():
     response = TestClient(create_test_app()).get(
-        "/context?source=test",
+        "/context?source=alpha&filter=beta",
         headers={REQUEST_ID_HEADER: "request-123"},
     )
 
@@ -35,8 +39,10 @@ def test_middleware_binds_request_context_and_header():
     assert response.headers[REQUEST_ID_HEADER] == "request-123"
     assert response.json() == {
         "request_id": "request-123",
-        "url": "/context?source=test",
+        "url": "/context?source=%5BREDACTED%5D&filter=%5BREDACTED%5D",
     }
+    assert "alpha" not in response.text
+    assert "beta" not in response.text
     assert get_request_id() is None
     assert get_request_url() is None
 
@@ -63,3 +69,20 @@ def test_middleware_logs_client_error_as_error(monkeypatch):
     logger.error.assert_called_once()
     logger.info.assert_not_called()
     assert logger.error.call_args.kwargs["status_code"] == 400
+
+
+def test_middleware_contains_unexpected_exception(monkeypatch):
+    middleware_logger = Mock()
+    problem_logger = Mock()
+    monkeypatch.setattr("app.observability.middleware.logger", middleware_logger)
+    monkeypatch.setattr("app.problem_details.logger", problem_logger)
+
+    response = TestClient(create_test_app()).get("/boom")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "Something went wrong. Please try again later."
+    )
+    assert "internal diagnostic detail" not in response.text
+    middleware_logger.error.assert_called_once()
+    problem_logger.error.assert_called_once()
