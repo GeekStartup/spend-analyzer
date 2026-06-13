@@ -114,11 +114,11 @@ def test_method_not_allowed_preserves_allow_header_and_route_template():
     assert "private-item" not in str(response.json())
 
 
-def test_unknown_http_status_uses_safe_fallback_detail():
+def test_unknown_http_status_uses_safe_project_problem_type():
     response = TestClient(create_test_app()).get("/teapot")
 
     assert response.status_code == 418
-    assert response.json()["type"] == "about:blank"
+    assert response.json()["type"] == "urn:spend-analyzer:problem:http-error"
     assert response.json()["title"] == "HTTP error"
     assert response.json()["detail"] == "The request could not be completed."
     assert "unsafe" not in str(response.json())
