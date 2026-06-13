@@ -52,6 +52,10 @@ def create_app() -> FastAPI:
         otlp_endpoint=settings.otel_exporter_otlp_endpoint,
         sample_ratio=settings.otel_sample_ratio,
         excluded_urls=settings.metrics_path,
+        excluded_outbound_urls=(
+            settings.oidc_jwks_url,
+            settings.oidc_issuer_url,
+        ),
     )
 
     app.include_router(health_router)
