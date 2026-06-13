@@ -40,13 +40,37 @@ def _dependency_error_context(
     return context
 
 
+def _is_usable_signing_key(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    kid = value.get("kid")
+    modulus = value.get("n")
+    exponent = value.get("e")
+    return (
+        isinstance(kid, str)
+        and bool(kid)
+        and value.get("kty") == "RSA"
+        and value.get("use", "sig") == "sig"
+        and value.get("alg", "RS256") == "RS256"
+        and isinstance(modulus, str)
+        and bool(modulus)
+        and isinstance(exponent, str)
+        and bool(exponent)
+    )
+
+
 def _validate_jwks_response(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Invalid JWKS response structure")
 
     keys = value.get("keys")
-    if not isinstance(keys, list) or not all(isinstance(key, dict) for key in keys):
+    if not isinstance(keys, list) or not keys:
+        raise ValueError("JWKS response contains no signing keys")
+    if not all(isinstance(key, dict) for key in keys):
         raise ValueError("Invalid JWKS response structure")
+    if not any(_is_usable_signing_key(key) for key in keys):
+        raise ValueError("JWKS response contains no usable signing keys")
 
     return value
 
@@ -100,7 +124,7 @@ def get_signing_key(token: str) -> dict[str, Any]:
     jwks = get_jwks()
 
     for key in jwks.get("keys", []):
-        if key.get("kid") == key_id:
+        if key.get("kid") == key_id and _is_usable_signing_key(key):
             return key
 
     raise JwtValidationError("Matching signing key was not found")
