@@ -1,9 +1,21 @@
+import ast
+from pathlib import Path
+from unittest.mock import Mock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.observability import logging as observability_logging
-from app.observability import metrics, tracing
+from app.observability import metrics
 from app.observability.middleware import RequestContextMiddleware
+from app.problem_details import register_problem_handlers
+
+APPLICATION_PACKAGE_PATHS = (
+    Path("app/api"),
+    Path("app/auth"),
+    Path("app/db"),
+    Path("app/services"),
+)
 
 
 def get_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
@@ -13,14 +25,6 @@ def get_sample_value(metric, sample_name: str, labels: dict[str, str]) -> float:
                 return sample.value
 
     return 0.0
-
-
-class EventRecordingSpan:
-    def __init__(self):
-        self.events = []
-
-    def add_event(self, name, attributes=None):
-        self.events.append((name, attributes))
 
 
 def test_logging_processor_removes_raw_exception_and_stack_inputs():
@@ -44,48 +48,63 @@ def test_logging_processor_removes_raw_exception_and_stack_inputs():
     assert "secret" not in str(event)
 
 
-def test_record_exception_safely_records_only_exception_type():
-    span = EventRecordingSpan()
-    sensitive_error = RuntimeError(
-        "postgresql://database-user:database-password@database.internal/spend"
-    )
-
-    tracing.record_exception_safely(span, sensitive_error)
-
-    assert span.events == [
-        (
-            tracing.SAFE_EXCEPTION_EVENT_NAME,
-            {"exception.type": "RuntimeError"},
-        )
-    ]
-    assert "database-password" not in str(span.events)
-
-
-def test_unhandled_exception_log_excludes_exception_message(monkeypatch):
+def test_unhandled_exception_uses_safe_problem_and_diagnostic_log(monkeypatch):
     test_app = FastAPI()
     test_app.add_middleware(RequestContextMiddleware)
+    register_problem_handlers(test_app)
 
-    log_calls = []
-
-    monkeypatch.setattr(
-        "app.observability.middleware.record_app_exception",
-        lambda _category: None,
-    )
-    monkeypatch.setattr(
-        "app.observability.middleware.logger.error",
-        lambda *args, **kwargs: log_calls.append((args, kwargs)),
-    )
+    logger = Mock()
+    exception_metric = Mock()
+    monkeypatch.setattr("app.problem_details.logger", logger)
+    monkeypatch.setattr("app.problem_details.record_app_exception", exception_metric)
 
     @test_app.get("/boom")
     def boom():
         raise RuntimeError("database-password=secret")
 
-    response = TestClient(test_app, raise_server_exceptions=False).get("/boom")
+    response = TestClient(test_app, raise_server_exceptions=False).get(
+        "/boom?source=test"
+    )
 
     assert response.status_code == 500
-    assert len(log_calls) == 1
-    assert log_calls[0][1]["exception_type"] == "RuntimeError"
-    assert "secret" not in str(log_calls)
+    assert response.json()["detail"] == (
+        "Something went wrong. Please try again later."
+    )
+    assert response.json()["url"] == "/boom?source=test"
+    exception_metric.assert_called_once_with("unhandled")
+    logger.error.assert_called_once()
+    log_fields = logger.error.call_args.kwargs
+    assert log_fields["status_code"] == 500
+    assert log_fields["exception_type"] == "RuntimeError"
+    assert log_fields["problem_type"] == (
+        "urn:spend-analyzer:problem:internal-server-error"
+    )
+    assert "secret" not in str(logger.error.call_args)
+
+
+def test_application_packages_do_not_import_opentelemetry():
+    violations = []
+
+    for package_path in APPLICATION_PACKAGE_PATHS:
+        for source_path in package_path.rglob("*.py"):
+            tree = ast.parse(source_path.read_text(encoding="utf-8"))
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imported_modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    imported_modules = [node.module or ""]
+                else:
+                    continue
+
+                if any(
+                    module == "opentelemetry"
+                    or module.startswith("opentelemetry.")
+                    for module in imported_modules
+                ):
+                    violations.append(str(source_path))
+
+    assert violations == []
 
 
 def test_configure_http_metrics_rejects_route_collision():
@@ -141,34 +160,3 @@ def test_bounded_auth_and_storage_metrics_increment():
         )
         == storage_before + 1
     )
-
-
-def test_start_span_disables_automatic_exception_recording(monkeypatch):
-    calls = {}
-
-    class FakeTracer:
-        def start_as_current_span(self, name, **kwargs):
-            calls["name"] = name
-            calls["kwargs"] = kwargs
-
-            class ContextManager:
-                def __enter__(self):
-                    return object()
-
-                def __exit__(self, exc_type, exc_value, traceback):
-                    return None
-
-            return ContextManager()
-
-    monkeypatch.setattr(tracing, "get_tracer", lambda: FakeTracer())
-
-    with tracing.start_span("safe.test"):
-        pass
-
-    assert calls == {
-        "name": "safe.test",
-        "kwargs": {
-            "record_exception": False,
-            "set_status_on_exception": False,
-        },
-    }
