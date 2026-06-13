@@ -3,12 +3,9 @@ from structlog.contextvars import bind_contextvars, clear_contextvars, get_conte
 
 
 def bind_request_context(request_id: str, url: str | None = None) -> None:
-    context: dict[str, str] = {"request_id": request_id}
-
-    if url is not None:
-        context["url"] = url
-
-    bind_contextvars(**context)
+    """Bind correlation identifiers only; request targets remain event-local."""
+    del url
+    bind_contextvars(request_id=request_id)
 
 
 def clear_request_context() -> None:
