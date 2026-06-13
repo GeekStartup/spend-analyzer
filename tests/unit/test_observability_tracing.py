@@ -45,8 +45,7 @@ def test_sanitizing_processor_cleans_span_before_delegate():
     delegate = Mock()
     processor = SanitizingSpanProcessor(delegate)
     unsafe_url = (
-        "https://span-user:span-password@api.example.com:8443/"
-        "items/private?page=2"
+        "https://span-user:span-password@api.example.com:8443/items/private?page=2"
     )
     span = ReadableSpan(
         name="GET /items/{item_id}",
