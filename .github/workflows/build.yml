@@ -75,11 +75,29 @@ jobs:
         run: python -m pip_audit -r requirements-dev.txt
 
       - name: Run tests with coverage
-        run: python -m pytest --cov=app --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+        run: >-
+          python -m pytest
+          --cov=app
+          --cov-branch
+          --cov-report=term-missing
+          --cov-report=json:${GITHUB_WORKSPACE}/coverage.json
 
       - name: Check coverage thresholds
-        run: python scripts/check_coverage.py coverage.json 95 95
+        run: python scripts/check_coverage.py "$GITHUB_WORKSPACE/coverage.json" 95 95
+
+      - name: Upload coverage JSON
+        if: always() && hashFiles('coverage.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-json
+          path: ${{ github.workspace }}/coverage.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Clean up integration stack
         if: always()
         run: docker compose -f docker-compose.test.yml down -v --remove-orphans
+
+      - name: Delete coverage JSON
+        if: always()
+        run: rm -f "$GITHUB_WORKSPACE/coverage.json"
