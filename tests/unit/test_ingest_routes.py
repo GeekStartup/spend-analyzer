@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.api import ingest_routes
 from app.api.ingest_routes import normalize_optional_text, read_upload_file_with_limit
 from app.auth.dependencies import get_current_user
-from app.errors import FileStorageUnavailableError, UploadTooLargeError
+from app.errors import FileStorageError, FileStorageUnavailableError, UploadTooLargeError
 from app.main import app
 from app.schemas.auth_schema import AuthenticatedUser
 
@@ -31,11 +31,28 @@ def test_normalize_optional_text():
 
 
 @pytest.mark.anyio
+async def test_read_upload_file_with_limit_returns_content():
+    file = UploadFile(filename="statement.pdf", file=BytesIO(b"%PDF sample"))
+
+    content = await read_upload_file_with_limit(file, 1024)
+
+    assert content == b"%PDF sample"
+
+
+@pytest.mark.anyio
 async def test_read_upload_file_with_limit_rejects_large_content():
     file = UploadFile(filename="statement.pdf", file=BytesIO(b"%PDF sample"))
 
     with pytest.raises(UploadTooLargeError):
         await read_upload_file_with_limit(file, 4)
+
+
+def test_observability_content_type_is_bounded():
+    assert ingest_routes.get_observability_content_type("application/pdf") == (
+        "application/pdf"
+    )
+    assert ingest_routes.get_observability_content_type("text/plain") == "unknown"
+    assert ingest_routes.get_observability_content_type(None) == "unknown"
 
 
 def patch_observability(monkeypatch):
@@ -107,6 +124,21 @@ def test_upload_statement_records_invalid_pdf(client, monkeypatch):
     )
 
 
+def test_upload_statement_records_too_large_failure(client, monkeypatch):
+    values = patch_observability(monkeypatch)
+    monkeypatch.setattr(ingest_routes.settings, "max_upload_size_bytes", 4)
+
+    response = client.post(
+        "/ingest",
+        files={"file": ("statement.pdf", b"%PDF sample", "application/pdf")},
+    )
+
+    assert response.status_code == 413
+    values["failure"].assert_called_once_with(
+        ingest_routes.INGESTION_FAILURE_UPLOAD_TOO_LARGE
+    )
+
+
 def test_upload_statement_records_storage_unavailable(client, monkeypatch):
     values = patch_observability(monkeypatch)
 
@@ -124,4 +156,28 @@ def test_upload_statement_records_storage_unavailable(client, monkeypatch):
     values["failure"].assert_called_once_with(
         ingest_routes.INGESTION_FAILURE_STORAGE_UNAVAILABLE
     )
-    values["storage"].assert_called_once_with(ingest_routes.STORAGE_FAILURE_UNAVAILABLE)
+    values["storage"].assert_called_once_with(
+        ingest_routes.STORAGE_FAILURE_UNAVAILABLE
+    )
+
+
+def test_upload_statement_records_internal_storage_failure(client, monkeypatch):
+    values = patch_observability(monkeypatch)
+
+    def fail_save(**_kwargs):
+        raise FileStorageError("Internal storage failure")
+
+    monkeypatch.setattr(ingest_routes, "save_uploaded_pdf", fail_save)
+
+    response = client.post(
+        "/ingest",
+        files={"file": ("statement.pdf", b"%PDF sample", "application/pdf")},
+    )
+
+    assert response.status_code == 500
+    values["failure"].assert_called_once_with(
+        ingest_routes.INGESTION_FAILURE_STORAGE_INTERNAL_ERROR
+    )
+    values["storage"].assert_called_once_with(
+        ingest_routes.STORAGE_FAILURE_INTERNAL_ERROR
+    )
