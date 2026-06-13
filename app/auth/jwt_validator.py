@@ -11,6 +11,7 @@ from app.observability.metrics import record_dependency_health
 
 IDENTITY_PROVIDER_DEPENDENCY = "identity_provider"
 JWKS_REQUEST_TIMEOUT_SECONDS = 5
+SUPPORTED_JWT_ALGORITHM = "RS256"
 
 JWKS_FAILURE_REQUEST_FAILED = "request_failed"
 JWKS_FAILURE_INVALID_RESPONSE = "invalid_response"
@@ -40,15 +41,37 @@ def _dependency_error_context(
     return context
 
 
+def _is_usable_rsa_signing_key(key: object) -> bool:
+    if not isinstance(key, dict):
+        return False
+
+    required_values = (key.get("kid"), key.get("n"), key.get("e"))
+    if key.get("kty") != "RSA" or not all(
+        isinstance(value, str) and value for value in required_values
+    ):
+        return False
+
+    key_use = key.get("use")
+    if key_use not in (None, "sig"):
+        return False
+
+    algorithm = key.get("alg")
+    return algorithm in (None, SUPPORTED_JWT_ALGORITHM)
+
+
 def _validate_jwks_response(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Invalid JWKS response structure")
 
     keys = value.get("keys")
-    if not isinstance(keys, list) or not all(isinstance(key, dict) for key in keys):
+    if not isinstance(keys, list):
         raise ValueError("Invalid JWKS response structure")
 
-    return value
+    usable_keys = [key for key in keys if _is_usable_rsa_signing_key(key)]
+    if not usable_keys:
+        raise ValueError("JWKS response contains no usable RSA signing keys")
+
+    return {**value, "keys": usable_keys}
 
 
 @lru_cache(maxsize=1)
@@ -114,7 +137,7 @@ def validate_access_token(token: str) -> dict[str, Any]:
         claims = jwt.decode(
             token=token,
             key=signing_key,
-            algorithms=["RS256"],
+            algorithms=[SUPPORTED_JWT_ALGORITHM],
             audience=settings.oidc_audience,
             issuer=settings.oidc_issuer_url,
         )
