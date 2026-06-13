@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api import ingest_routes
 from app.auth.dependencies import get_current_user
-from app.errors import FileStorageError, UploadTooLargeError
+from app.errors import FileStorageError
 from app.main import app
 from app.schemas.auth_schema import AuthenticatedUser
 
