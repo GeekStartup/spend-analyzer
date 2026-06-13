@@ -9,6 +9,7 @@ from starlette.types import ASGIApp
 from app.http import REQUEST_ID_HEADER, get_relative_url
 from app.observability.context import bind_request_context, clear_request_context
 from app.observability.logging import get_logger
+from app.problem_details import handle_unexpected_exception
 
 REQUEST_ID_MAX_LENGTH = 128
 METRICS_ROUTE_PATH = "/metrics"
@@ -34,6 +35,7 @@ def _should_log_request(path: str, metrics_path: str) -> bool:
 def _log_http_request(
     *,
     method: str,
+    url: str,
     status_code: int,
     duration_ms: float,
 ) -> None:
@@ -41,6 +43,7 @@ def _log_http_request(
     log(
         "http.request",
         method=method,
+        url=url,
         status_code=status_code,
         duration_ms=duration_ms,
     )
@@ -61,26 +64,32 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
         request.state.url = relative_url
 
-        bind_request_context(request_id, relative_url)
+        bind_request_context(request_id)
         should_log = _should_log_request(request.url.path, self.metrics_path)
         started_at = perf_counter()
 
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception as error:
+            response = await handle_unexpected_exception(request, error)
+            response.headers[REQUEST_ID_HEADER] = request_id
+
             if should_log:
                 _log_http_request(
                     method=request.method,
+                    url=relative_url,
                     status_code=500,
                     duration_ms=round((perf_counter() - started_at) * 1000, 2),
                 )
-            raise
+
+            return response
         else:
             response.headers[REQUEST_ID_HEADER] = request_id
 
             if should_log:
                 _log_http_request(
                     method=request.method,
+                    url=relative_url,
                     status_code=response.status_code,
                     duration_ms=round((perf_counter() - started_at) * 1000, 2),
                 )
