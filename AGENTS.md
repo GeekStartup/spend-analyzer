@@ -146,8 +146,8 @@ The current default sequence is:
 → #22 → #23 → #24 → #21 natural-language query pipeline
 → #25–#29 RAG and semantic retrieval
 → #46–#48 controlled agentic AI
-→ #30–#34 additional ingestion and product automation
 → #35–#40 frontend
+→ #30–#34 additional ingestion and product automation
 ```
 
 Rules for using this sequence:
