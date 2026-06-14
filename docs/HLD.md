@@ -4,7 +4,7 @@
 
 This document describes the high-level architecture of Spend Analyzer.
 
-It explains the major system components, runtime relationships, observability architecture, system boundaries, and important end-to-end flows. Detailed module-level behavior belongs in [`LLD.md`](LLD.md). Operational procedures for the local observability stack belong in [`LOCAL_OBSERVABILITY.md`](LOCAL_OBSERVABILITY.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
+It covers the major system components, runtime relationships, observability architecture, system boundaries, and important end-to-end flows. Detailed module behavior belongs in [`LLD.md`](LLD.md). Observability implementation decisions belong in [`OBSERVABILITY_LLD.md`](OBSERVABILITY_LLD.md). Operational procedures belong in [`LOCAL_OBSERVABILITY.md`](LOCAL_OBSERVABILITY.md). Parser-specific design belongs in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
 ---
 
@@ -12,13 +12,13 @@ It explains the major system components, runtime relationships, observability ar
 
 Spend Analyzer is designed to be:
 
-- Secure by default.
-- Multi-user from the beginning.
-- Backend-calculation-first for financial correctness.
-- AI-assisted but not AI-dependent.
-- Observable through structured logs, metrics, and traces.
-- Containerized for local development and future cloud deployment.
-- Learning-friendly, with explicit separation between current implementation and planned capabilities.
+- secure by default;
+- multi-user from the beginning;
+- backend-calculation-first for financial correctness;
+- AI-assisted but not AI-dependent;
+- observable through structured logs, bounded metrics, and safe traces;
+- containerized for local development and future cloud deployment;
+- learning-friendly, with explicit separation between current and planned capabilities.
 
 Core rule:
 
@@ -42,6 +42,7 @@ flowchart LR
     DB[(PostgreSQL)]
     Files[(Local file storage)]
     Metrics[Prometheus]
+    Collector[OpenTelemetry Collector]
     Traces[Tempo]
     Dashboards[Grafana]
     AI[Future AI provider]
@@ -50,19 +51,20 @@ flowchart LR
     User --> Client
     Client -->|Bearer token + API requests| API
     Client -->|Login / token request| IdP
-    API -->|Validate JWT / JWKS| IdP
+    API -->|Validate JWT / fetch JWKS| IdP
     API -->|Read/write metadata and transactions| DB
     API -->|Store uploaded PDFs| Files
     Metrics -->|Scrape application metrics| API
     Metrics -->|Scrape PostgreSQL metrics| DB
-    API -->|Export traces through Collector| Traces
+    API -->|OTLP traces| Collector
+    Collector --> Traces
     Dashboards --> Metrics
     Dashboards --> Traces
     API -.->|Future parsing fallback / insights| AI
     API -.->|Future semantic retrieval| Vector
 ```
 
-The user-facing application remains independent of the local observability backend. Metrics and traces are operational outputs; they are not required for business request processing.
+The user-facing application remains independent of the optional local observability backend. Metrics and traces are operational outputs and are not required for business request processing.
 
 ---
 
@@ -101,22 +103,20 @@ flowchart TB
     Grafana --> Tempo
 ```
 
-Current local services:
-
-| Service | Responsibility | Required for normal app startup |
+| Service | Responsibility | Required for normal startup |
 |---|---|---:|
 | `app` | FastAPI backend | Yes |
 | `db` | PostgreSQL database | Yes |
 | `identity-provider` | Local Keycloak/OIDC provider | Yes |
 | `flyway` | Applies SQL migrations | Yes, one-shot |
-| upload storage | Stores uploaded PDF files locally | Yes |
+| upload storage | Stores uploaded PDFs locally | Yes |
 | `otel-collector` | Receives, batches, and forwards OTLP traces | No |
 | `prometheus` | Scrapes and stores application/database metrics | No |
 | `grafana` | Explores metrics and traces | No |
 | `tempo` | Stores local traces | No |
 | `postgres-exporter` | Exposes PostgreSQL operational metrics | No |
 
-The optional services start only with:
+The optional services start with:
 
 ```text
 docker compose --profile observability up --build -d
@@ -129,33 +129,48 @@ docker compose --profile observability up --build -d
 ```mermaid
 flowchart TB
     Routes[API routes]
-    Auth[Auth dependencies + JWT validator]
-    Schemas[Pydantic schemas]
+    Auth[Auth dependency + JWT validator]
     Services[Application services]
     Storage[File storage service]
     DbConn[Database connection]
-    Settings[Configuration settings]
-    Observability[Observability package]
+    Errors[Typed application errors]
+    ProblemDetails[Central Problem Details handlers]
+    Middleware[Request context middleware]
+    Metrics[Bounded application metrics]
+    Tracing[Automatic HTTP tracing + span sanitization]
+    Schemas[Pydantic schemas]
+    Settings[Typed settings]
     DB[(PostgreSQL)]
     Files[(Uploaded files)]
 
     Routes --> Auth
-    Routes --> Schemas
     Routes --> Services
     Routes --> Storage
-    Routes --> Observability
-    Auth --> Observability
-    Services --> DbConn
-    Storage --> Files
-    Storage --> Observability
-    DbConn --> DB
+    Routes --> Schemas
+    Routes --> Errors
+    Routes --> Metrics
+
+    Auth --> Errors
+    Auth --> Metrics
     Auth --> Settings
+
+    Services --> DbConn
     Services --> Settings
+    Storage --> Files
+    Storage --> Errors
     Storage --> Settings
-    Observability --> Settings
+    DbConn --> DB
+
+    Errors --> ProblemDetails
+    Middleware --> ProblemDetails
+    Middleware --> Tracing
+    Tracing --> Settings
+    Metrics --> Settings
 ```
 
-Current implemented route modules:
+Application routes and services do not create OpenTelemetry spans. They raise typed failures and record bounded business metrics where aggregation is useful. Common infrastructure owns request correlation, HTTP outcome logging, Problem Details conversion, and HTTP tracing.
+
+### 5.1 Current route modules
 
 | Module | Responsibility |
 |---|---|
@@ -163,24 +178,27 @@ Current implemented route modules:
 | `me_routes.py` | Authenticated user details |
 | `ingest_routes.py` | Authenticated PDF upload |
 
-Current observability modules:
+### 5.2 Current cross-cutting modules
 
 | Module | Responsibility |
 |---|---|
-| `observability/context.py` | Request, trace, and span correlation context |
+| `errors.py` | Typed controlled application failures and safe diagnostic context |
+| `http.py` | Route-template resolution and safe request/URL sanitization |
+| `problem_details.py` | Central exception mapping, diagnostic logging, and RFC 9457-compatible responses |
+| `observability/context.py` | Request correlation context |
 | `observability/logging.py` | Structured JSON logging and safe processors |
-| `observability/middleware.py` | Request ID and request outcome summary |
+| `observability/middleware.py` | Request ID, duration, exception containment, and one HTTP outcome log |
 | `observability/metrics.py` | HTTP, application, dependency, auth, storage, and ingestion metrics |
-| `observability/tracing.py` | OpenTelemetry setup and safe manual span helpers |
+| `observability/tracing.py` | Automatic FastAPI/outbound HTTP tracing and pre-export span sanitization |
 
-Planned component additions:
+### 5.3 Planned component additions
 
 | Component | Responsibility |
 |---|---|
 | `repositories/` | Database access abstractions |
-| `parsing/` | PDF extraction, statement detection, transaction parsing |
+| `parsing/` | PDF extraction, statement detection, and transaction parsing |
 | `ai/` | AI provider abstraction and structured-output utilities |
-| `rag/` | Chunking, embeddings, retrieval, context building |
+| `rag/` | Chunking, embeddings, retrieval, and context construction |
 | `agents/` | Controlled tool-based finance agent |
 
 ---
@@ -199,38 +217,104 @@ FastAPI /metrics -------------------+
 PostgreSQL exporter /metrics -------+
 
 Traces:
-FastAPI -> OTLP -> OpenTelemetry Collector -> Tempo -> Grafana
+FastAPI automatic spans
+    -> sanitizing span processor
+    -> OTLP
+    -> OpenTelemetry Collector
+    -> Tempo
+    -> Grafana
 ```
 
-Prometheus directly scrapes Prometheus-format metrics. The Collector is used for trace transport, batching, and backend routing; it is not a metrics database.
+Prometheus directly scrapes Prometheus-format metrics. The Collector transports and batches traces; it is not a metrics database.
 
-### 6.2 Request correlation
+### 6.2 Request lifecycle
 
-Each request has:
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Middleware as Request middleware
+    participant Route as Route / dependency / service
+    participant Handler as Central exception handler
+    participant Trace as Automatic tracing
+    participant Logs as Structured logs
+
+    Client->>Middleware: HTTP request
+    Middleware->>Middleware: Validate/generate request_id
+    Middleware->>Trace: Automatic server span exists
+    Middleware->>Route: Dispatch request
+    alt Successful
+        Route-->>Middleware: Response
+    else Controlled ApplicationError
+        Route-->>Handler: Typed exception
+        Handler->>Logs: Safe diagnostic event
+        Handler-->>Middleware: Problem Details response
+    else Unexpected exception
+        Middleware->>Handler: Contain exception
+        Handler->>Logs: Generic bounded diagnostic
+        Handler-->>Middleware: Safe 500 Problem Details
+    end
+    Middleware->>Logs: One http.request outcome with status and duration
+    Middleware-->>Client: Response + X-Request-ID
+```
+
+The middleware owns request-wide mechanics. Typed exceptions describe controlled failures. Central handlers own error mapping and diagnostic logs. Automatic instrumentation owns HTTP spans.
+
+### 6.3 Request correlation
+
+Each request can have:
 
 - `request_id`: client-facing support identifier returned through `X-Request-ID`;
 - `trace_id`: distributed trace identifier when tracing is enabled;
-- `span_id`: current operation identifier when tracing is enabled.
+- `span_id`: current span identifier when tracing is enabled.
 
-Request, trace, and span IDs are log fields only. They are never metric labels.
+Request, trace, and span identifiers are log fields only. They are never Prometheus labels.
 
-### 6.3 Safe telemetry boundary
+### 6.4 Safe request target
+
+Request logs, Problem Details, and server-span HTTP attributes use:
+
+- route templates instead of concrete dynamic path values;
+- bounded query parameter names;
+- `[REDACTED]` for every query value;
+- no scheme, host, port, fragment, headers, or body.
+
+Examples:
+
+```text
+/items/{item_id}
+/items/{item_id}?source=%5BREDACTED%5D
+/<unmatched>?source=%5BREDACTED%5D
+```
+
+### 6.5 Safe telemetry boundary
 
 Telemetry must not contain:
 
-- passwords, tokens, API keys, or authorization headers;
-- database URLs or credentials;
+- passwords, tokens, API keys, authorization headers, or identity claims;
+- raw user identifiers, usernames, or email addresses;
+- database URLs, credentials, SQL, or bind values;
+- concrete dynamic path values or query values;
 - raw exception messages or stack traces;
-- original filenames when they may be sensitive;
-- statement contents or extracted text;
-- account numbers, card numbers, or user-provided financial descriptions;
-- SQL text or bind values.
+- original sensitive filenames;
+- statement contents, extracted text, account numbers, card numbers, or user-provided financial descriptions;
+- identity-provider payloads or provider URLs in generic outbound traces.
 
-The application records bounded failure categories and exception class names instead of uncontrolled exception payloads.
+The application records bounded categories, exception class names, generated statement references, sizes, counts, and configured limits where operationally useful.
 
-### 6.4 Centralized log search
+### 6.6 Tracing decision
 
-OpenSearch, Elasticsearch/ELK, and Loki are intentionally deferred. Structured JSON logs to stdout are sufficient for the current MVP. A centralized log backend should be added only when retention, multi-instance search, or incident investigation needs justify its operational cost.
+Issue #78 uses automatic infrastructure tracing:
+
+- `FastAPIInstrumentor` creates incoming server spans;
+- `RequestsInstrumentor` creates supported outbound HTTP client spans;
+- configured identity-provider issuer and JWKS endpoints are excluded from generic outbound tracing;
+- completed spans are sanitized before batching and OTLP export;
+- application routes and services do not import OpenTelemetry or create manual spans;
+- future business/dependency spans require a separate design decision.
+
+### 6.7 Centralized log search
+
+OpenSearch, Elasticsearch/ELK, and Loki are deferred. Structured JSON logs to stdout are sufficient for the current MVP. A centralized backend should be added only when retention, multi-instance search, or incident-investigation needs justify its operational cost.
 
 ---
 
@@ -243,31 +327,47 @@ sequenceDiagram
     participant IdP as OIDC / Keycloak
     participant API as FastAPI backend
     participant Metrics as Prometheus metrics
+    participant Handler as Problem Details handler
 
-    User->>Client: Open app / API client
-    Client->>IdP: Authenticate user
+    User->>Client: Authenticate
+    Client->>IdP: Login / token request
     IdP-->>Client: Access token
-    Client->>API: API request with bearer token
-    API->>IdP: Fetch JWKS if not cached
-    IdP-->>API: Public signing keys
-    API->>API: Validate signature, issuer, audience
-    alt Missing or invalid credentials
-        API->>Metrics: Increment bounded auth failure category
-        API-->>Client: 401 Unauthorized
-    else Valid token
-        API->>API: Extract sub, username, email
-        API-->>Client: Authenticated response
+    Client->>API: Protected API request
+
+    alt Credentials missing
+        API->>Metrics: Increment missing_credentials
+        API->>Handler: AuthenticationRequiredError
+        Handler-->>Client: 401 Problem Details + WWW-Authenticate
+    else Token supplied
+        API->>IdP: Fetch JWKS when cache is empty
+        alt Identity provider unavailable or response unusable
+            API->>Metrics: Set identity_provider health to 0
+            API->>Handler: IdentityProviderUnavailableError
+            Handler-->>Client: 503 Problem Details
+        else Signing keys available
+            IdP-->>API: Public signing keys
+            API->>API: Validate signature, issuer, audience, expiry
+            alt Token invalid
+                API->>Metrics: Increment credentials_invalid
+                API->>Handler: InvalidCredentialsError
+                Handler-->>Client: 401 Problem Details + WWW-Authenticate
+            else Token valid
+                API->>API: Derive user_id from sub
+                API-->>Client: Authenticated response
+            end
+        end
     end
 ```
 
 Security rules:
 
-- Backend derives `user_id` from token `sub`.
-- Backend never accepts user ownership from request payload.
-- Protected routes require a valid bearer token.
-- JWT issuer and audience must match configured values.
-- Authentication metrics use only bounded categories such as `missing_credentials` and `credentials_invalid`.
-- Token contents and validation messages are never telemetry fields.
+- backend ownership is derived from token `sub`;
+- the backend never accepts user ownership from request payload;
+- protected routes require a valid bearer token;
+- issuer and audience must match configured values;
+- invalid credentials and identity-provider outages are separate operational categories;
+- identity-provider unavailability returns `503` and does not increment authentication-failure metrics;
+- tokens, claims, key IDs, provider payloads, and raw validation messages are not telemetry fields.
 
 ---
 
@@ -280,40 +380,59 @@ sequenceDiagram
     participant Auth as JWT validation
     participant Storage as File storage service
     participant Disk as Local upload storage
-    participant Telemetry as Logs / metrics / spans
+    participant Metrics as Bounded metrics
+    participant Handler as Problem Details handler
 
-    Client->>API: POST /ingest with PDF + optional metadata hints
+    Client->>API: POST /ingest with PDF + optional hints
     API->>Auth: Validate bearer token
     Auth-->>API: Authenticated user context
-    API->>Telemetry: Record ingestion attempt and start span
-    API->>API: Validate filename and content type
-    API->>API: Read file in chunks with size limit
+    API->>API: Generate statement_reference
+    API->>Metrics: Record ingestion attempt
+    API->>API: Validate metadata and read with size limit
     API->>Storage: Save validated PDF
-    Storage->>Disk: Write generated stored file name
-    alt Storage unavailable
+    Storage->>Disk: Write generated filename under hashed user directory
+
+    alt Invalid PDF
+        API->>Metrics: Record invalid_pdf
+        API->>Handler: InvalidPdfError
+        Handler-->>Client: 400 Problem Details
+    else Upload too large
+        API->>Metrics: Record upload_too_large
+        API->>Handler: UploadTooLargeError
+        Handler-->>Client: 413 Problem Details
+    else Storage unavailable
         Disk-->>Storage: OSError
         Storage-->>API: FileStorageUnavailableError
-        API->>Telemetry: Record storage and ingestion failure
-        API-->>Client: 503 Service Unavailable
+        API->>Metrics: Record storage and ingestion failure
+        API->>Handler: Typed exception with safe context
+        Handler-->>Client: 503 Problem Details
+    else Internal storage defect
+        Storage-->>API: FileStorageError
+        API->>Metrics: Record bounded internal failure
+        API->>Handler: Typed exception with safe context
+        Handler-->>Client: 500 Problem Details
     else Stored
         Disk-->>Storage: Stored file path
-        Storage-->>API: Stored file name and path
-        API->>Telemetry: Record success, size, and safe business event
+        Storage-->>API: Generated stored filename and path
+        API->>Metrics: Record success and upload-size observation
         API-->>Client: 201 upload metadata response
     end
 ```
 
 Current behavior:
 
-- The API authenticates the caller.
-- The API validates and stores a PDF statement.
-- Oversized uploads return 413.
-- Invalid uploads return 400.
-- Storage availability failures return 503.
-- The API records bounded ingestion outcomes without filenames or user IDs.
-- Statement metadata persistence and parsing integration are planned next steps.
-
-For the exact API contract and module behavior, see [`LLD.md`](LLD.md).
+- authentication is required;
+- metadata and PDF-like content are validated;
+- the upload is read in bounded chunks with a configured limit;
+- generated storage paths do not use the original filename or raw user ID;
+- oversized uploads return `413`;
+- invalid PDFs return `400`;
+- storage availability failures return `503`;
+- unexpected internal storage failures return a safe `500`;
+- metrics use bounded categories;
+- the route emits one meaningful success business event;
+- the incoming request is traced automatically; the route does not create a manual ingestion span;
+- statement metadata persistence and parsing integration are planned next.
 
 ---
 
@@ -339,11 +458,11 @@ flowchart TD
 
 Design rules:
 
-- Generic parser runs before specialized parser.
-- Bank/account parser should be broad, not card-product-specific, unless necessary.
-- AI fallback is candidate extraction only.
-- Backend validation decides whether data can be persisted.
-- Each meaningful future stage must evaluate safe logs, bounded metrics, and span boundaries using the existing observability foundation.
+- generic parsing precedes specialized parsing;
+- bank/account parsers should be broad rather than product-specific unless necessary;
+- AI fallback produces candidate data only;
+- backend validation decides whether data can be persisted;
+- every future stage must deliberately choose baseline telemetry, a structured event, bounded metrics, a justified custom span, or no additional telemetry.
 
 Detailed parser design is maintained in [`PARSING_STRATEGY.md`](PARSING_STRATEGY.md).
 
@@ -389,21 +508,21 @@ erDiagram
     }
 ```
 
-Important data-isolation rule:
+Ownership rule:
 
 ```text
 transactions(statement_id, user_id) references statements(id, user_id)
 ```
 
-This prevents a transaction for one user from referencing another user's statement.
+This prevents one user's transaction from referencing another user's statement.
 
 Database observability currently uses:
 
-- application dependency-health metrics;
-- the `database.health_check` child span;
+- the automatic incoming request trace for `/health/db`;
+- the bounded database dependency-health gauge;
 - PostgreSQL exporter connection, activity, lock, and database metrics.
 
-Future repository work may add DB spans or slow-query instrumentation, but it must not record SQL text, bind values, credentials, or financial data.
+There is no manual `database.health_check` child span. Future repository work may add database instrumentation only after dependency compatibility, query patterns, and sanitization rules are validated. SQL, bind values, credentials, and financial data must never be recorded.
 
 ---
 
@@ -430,12 +549,12 @@ flowchart LR
 
 Rules:
 
-- SQL/backend tools provide financial numbers.
-- RAG retrieves context only for the authenticated user.
-- AI generates explanation from trusted facts and retrieved context.
-- AI must not execute raw SQL.
-- AI must not calculate final financial totals.
-- Prompts, retrieved financial content, and model responses must not be logged by default.
+- SQL/backend tools provide financial numbers;
+- retrieval is filtered by authenticated `user_id`;
+- AI generates explanations from trusted facts and retrieved context;
+- AI must not execute raw SQL;
+- AI must not calculate final financial totals;
+- prompts, retrieved financial content, and model responses are not logged by default.
 
 ---
 
@@ -500,42 +619,42 @@ The observability profile is optional. The application must start and process re
 | PostgreSQL container | Managed PostgreSQL |
 | Local upload directory | Object storage |
 | Local Keycloak | Managed or self-hosted OIDC provider |
-| Prometheus | Managed Prometheus-compatible metrics backend |
+| Prometheus | Managed Prometheus-compatible backend |
 | Tempo | Managed or self-hosted trace backend |
 | OpenTelemetry Collector | Sidecar, daemon, or gateway Collector |
 | Grafana | Managed or self-hosted visualization |
 | Docker Compose | Infrastructure as code / orchestration |
 | Local env file | Secret and parameter management |
 
-Before cloud deployment, introduce a storage abstraction so local filesystem and object storage use the same service interface.
+Before cloud deployment, introduce a storage abstraction so local filesystem and object storage implementations share the same service contract.
 
 ---
 
-## 14. HLD vs LLD Responsibility
+## 14. Documentation Responsibility
 
 | Document | Responsibility |
 |---|---|
-| `HLD.md` | Major components, system interactions, runtime and observability views, sequence diagrams, ERD, deployment view |
-| `LLD.md` | Module details, API contracts, configuration, telemetry behavior, validations, table details, service/repository rules |
-| `LOCAL_OBSERVABILITY.md` | Local startup, metric/trace inspection, request-ID debugging, and telemetry safety procedures |
-| `PARSING_STRATEGY.md` | Parser-specific design, confidence strategy, AI fallback, and manual review policy |
-| `LEARNING_GUIDE.md` | Learning objectives, learning phases, issue-quality expectations |
-| `PROJECT_REQUIREMENTS.md` | Product scope, functional requirements, non-functional requirements |
+| `HLD.md` | Major components, interactions, runtime views, major flows, ERD, and deployment view |
+| `LLD.md` | Module details, API contracts, validation, error handling, and service/repository rules |
+| `OBSERVABILITY_LLD.md` | Detailed logging, metrics, tracing, correlation, and telemetry-safety decisions |
+| `LOCAL_OBSERVABILITY.md` | Local startup, metric/trace inspection, request-ID debugging, and runbooks |
+| `PARSING_STRATEGY.md` | Parser strategy, confidence policy, AI fallback, and manual review |
+| `LEARNING_GUIDE.md` | Learning objectives, phases, and issue-quality expectations |
+| `PROJECT_REQUIREMENTS.md` | Product scope and functional/non-functional requirements |
 
 ---
 
 ## 15. Current Design Summary
 
-Current backend foundation:
-
 ```text
 FastAPI
++ centralized typed error handling and Problem Details
 + Keycloak/OIDC
 + PostgreSQL/Flyway
-+ local PDF upload
-+ structured logs
-+ Prometheus metrics
-+ OpenTelemetry traces
++ secure local PDF upload
++ structured request-correlated logs
++ bounded Prometheus metrics
++ automatically generated and sanitized OpenTelemetry traces
 + optional local observability stack
 + strict CI gates
 ```
@@ -543,7 +662,7 @@ FastAPI
 Next product architecture step:
 
 ```text
-Persist statement metadata, then add PDF extraction and parsing pipeline.
+Persist statement metadata, then add PDF extraction and the parsing pipeline.
 ```
 
-Future feature work must reuse the current observability helpers rather than creating new middleware, metric registries, or tracing providers.
+Future feature work must reuse the current request correlation, error handling, metric registry, and tracing provider rather than creating parallel infrastructure.

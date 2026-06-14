@@ -2,7 +2,9 @@ from opentelemetry import trace
 from structlog.contextvars import bind_contextvars, clear_contextvars, get_contextvars
 
 
-def bind_request_context(request_id: str) -> None:
+def bind_request_context(request_id: str, url: str | None = None) -> None:
+    """Bind correlation identifiers only; request targets remain event-local."""
+    del url
     bind_contextvars(request_id=request_id)
 
 
@@ -19,9 +21,17 @@ def get_request_id() -> str | None:
     return None
 
 
+def get_request_url() -> str | None:
+    value = get_contextvars().get("url")
+
+    if isinstance(value, str):
+        return value
+
+    return None
+
+
 def get_trace_id() -> str | None:
-    span = trace.get_current_span()
-    span_context = span.get_span_context()
+    span_context = trace.get_current_span().get_span_context()
 
     if not span_context.is_valid:
         return None
@@ -30,8 +40,7 @@ def get_trace_id() -> str | None:
 
 
 def get_span_id() -> str | None:
-    span = trace.get_current_span()
-    span_context = span.get_span_context()
+    span_context = trace.get_current_span().get_span_context()
 
     if not span_context.is_valid:
         return None

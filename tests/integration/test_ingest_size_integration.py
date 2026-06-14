@@ -73,4 +73,6 @@ def test_oversized_pdf_upload_returns_413():
     )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == "Uploaded file exceeds maximum allowed size"
+    assert response.json()["detail"] == (
+        "The uploaded file exceeds the maximum allowed size."
+    )

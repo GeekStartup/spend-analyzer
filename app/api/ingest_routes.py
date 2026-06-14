@@ -2,12 +2,17 @@ from io import BytesIO
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from opentelemetry.trace import Span, Status, StatusCode
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
+from app.errors import (
+    FileStorageError,
+    FileStorageUnavailableError,
+    InvalidPdfError,
+    UploadTooLargeError,
+)
 from app.observability.logging import get_logger
 from app.observability.metrics import (
     record_file_storage_failure,
@@ -15,14 +20,10 @@ from app.observability.metrics import (
     record_statement_ingestion_failure,
     record_statement_ingestion_success,
 )
-from app.observability.tracing import record_exception_safely, start_span
 from app.schemas.auth_schema import AuthenticatedUser
 from app.schemas.ingest_schema import StatementUploadResponse
 from app.services.file_storage_service import (
     PDF_CONTENT_TYPES,
-    FileStorageError,
-    FileStorageUnavailableError,
-    UploadTooLargeError,
     normalize_content_type,
     save_uploaded_pdf,
     validate_pdf_metadata,
@@ -30,9 +31,14 @@ from app.services.file_storage_service import (
 
 CHUNK_SIZE_BYTES = 1024 * 1024
 
+INGESTION_FAILURE_INVALID_PDF = "invalid_pdf"
 INGESTION_FAILURE_UPLOAD_TOO_LARGE = "upload_too_large"
-INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE = "file_validation_or_storage"
-INGESTION_FAILURE_STORAGE_ERROR = "storage_error"
+INGESTION_FAILURE_STORAGE_UNAVAILABLE = "storage_unavailable"
+INGESTION_FAILURE_STORAGE_INTERNAL_ERROR = "storage_internal_error"
+
+STORAGE_FAILURE_UNAVAILABLE = "unavailable"
+STORAGE_FAILURE_INTERNAL_ERROR = "internal_error"
+
 OBSERVABILITY_CONTENT_TYPE_UNKNOWN = "unknown"
 
 router = APIRouter(tags=["Ingestion"])
@@ -83,41 +89,18 @@ async def read_upload_file_with_limit(
     return content.getvalue()
 
 
-def record_ingestion_failure(
-    *,
-    span: Span,
-    statement_reference: str,
-    failure_category: str,
+def _add_ingestion_failure_context(
     error: FileStorageError,
+    *,
+    statement_reference: str,
+    stage: str,
+    failure_category: str,
 ) -> None:
-    """
-    Record one failed statement-ingestion outcome.
-
-    Failure categories must remain bounded because they are used as
-    Prometheus metric labels. Exception messages, filenames, user IDs,
-    and financial metadata must not be recorded.
-    """
-    record_statement_ingestion_failure(failure_category)
-
-    record_exception_safely(span, error)
-    span.set_status(
-        Status(
-            status_code=StatusCode.ERROR,
-            description=failure_category,
-        )
-    )
-    span.set_attribute("app.outcome", "failed")
-    span.set_attribute(
-        "app.failure.category",
-        failure_category,
-    )
-
-    logger.warning(
-        "statement.ingestion",
-        outcome="failed",
+    error.add_context(
+        operation="statement_ingestion",
+        stage=stage,
         statement_reference=statement_reference,
         failure_category=failure_category,
-        exception_type=error.__class__.__name__,
     )
 
 
@@ -139,88 +122,81 @@ async def upload_statement(
 
     record_statement_ingestion_attempt()
 
-    with start_span(
-        "statement.ingestion",
-        attributes={
-            "app.statement.reference": statement_reference,
-            "app.statement.content_type": content_type,
-        },
-    ) as span:
-        try:
-            validate_pdf_metadata(file)
-
-            content = await read_upload_file_with_limit(
-                file=file,
-                max_upload_size_bytes=settings.max_upload_size_bytes,
-            )
-
-            stored_file_name, _stored_file_path = await run_in_threadpool(
-                save_uploaded_pdf,
-                file=file,
-                upload_dir=settings.upload_dir,
-                user_id=current_user.user_id,
-                statement_reference=statement_reference,
-                content=content,
-                max_upload_size_bytes=settings.max_upload_size_bytes,
-            )
-        except UploadTooLargeError as error:
-            record_ingestion_failure(
-                span=span,
-                statement_reference=statement_reference,
-                failure_category=INGESTION_FAILURE_UPLOAD_TOO_LARGE,
-                error=error,
-            )
-
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=str(error),
-            ) from error
-        except FileStorageUnavailableError as error:
-            record_file_storage_failure(INGESTION_FAILURE_STORAGE_ERROR)
-            record_ingestion_failure(
-                span=span,
-                statement_reference=statement_reference,
-                failure_category=INGESTION_FAILURE_STORAGE_ERROR,
-                error=error,
-            )
-
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="File storage is unavailable",
-            ) from error
-        except FileStorageError as error:
-            record_ingestion_failure(
-                span=span,
-                statement_reference=statement_reference,
-                failure_category=INGESTION_FAILURE_FILE_VALIDATION_OR_STORAGE,
-                error=error,
-            )
-
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(error),
-            ) from error
-
-        file_size_bytes = len(content)
-
-        record_statement_ingestion_success(
-            content_type=content_type,
-            file_size_bytes=file_size_bytes,
+    try:
+        validate_pdf_metadata(file)
+        content = await read_upload_file_with_limit(
+            file=file,
+            max_upload_size_bytes=settings.max_upload_size_bytes,
         )
-
-        span.set_attribute("app.outcome", "succeeded")
-        span.set_attribute(
-            "app.statement.file_size_bytes",
-            file_size_bytes,
-        )
-
-        logger.info(
-            "statement.ingestion",
-            outcome="succeeded",
+        logger.debug(
+            "Statement upload content read",
             statement_reference=statement_reference,
-            content_type=content_type,
-            file_size_bytes=file_size_bytes,
+            file_size_bytes=len(content),
         )
+
+        stored_file_name, _stored_file_path = await run_in_threadpool(
+            save_uploaded_pdf,
+            file=file,
+            upload_dir=settings.upload_dir,
+            user_id=current_user.user_id,
+            statement_reference=statement_reference,
+            content=content,
+            max_upload_size_bytes=settings.max_upload_size_bytes,
+        )
+    except UploadTooLargeError as error:
+        record_statement_ingestion_failure(INGESTION_FAILURE_UPLOAD_TOO_LARGE)
+        _add_ingestion_failure_context(
+            error,
+            statement_reference=statement_reference,
+            stage="upload",
+            failure_category=INGESTION_FAILURE_UPLOAD_TOO_LARGE,
+        )
+        error.add_context(
+            configured_max_size_bytes=settings.max_upload_size_bytes,
+        )
+        raise
+    except InvalidPdfError as error:
+        record_statement_ingestion_failure(INGESTION_FAILURE_INVALID_PDF)
+        _add_ingestion_failure_context(
+            error,
+            statement_reference=statement_reference,
+            stage="validation",
+            failure_category=INGESTION_FAILURE_INVALID_PDF,
+        )
+        raise
+    except FileStorageUnavailableError as error:
+        record_file_storage_failure(STORAGE_FAILURE_UNAVAILABLE)
+        record_statement_ingestion_failure(INGESTION_FAILURE_STORAGE_UNAVAILABLE)
+        _add_ingestion_failure_context(
+            error,
+            statement_reference=statement_reference,
+            stage="storage",
+            failure_category=INGESTION_FAILURE_STORAGE_UNAVAILABLE,
+        )
+        raise
+    except FileStorageError as error:
+        record_file_storage_failure(STORAGE_FAILURE_INTERNAL_ERROR)
+        record_statement_ingestion_failure(INGESTION_FAILURE_STORAGE_INTERNAL_ERROR)
+        _add_ingestion_failure_context(
+            error,
+            statement_reference=statement_reference,
+            stage="storage",
+            failure_category=INGESTION_FAILURE_STORAGE_INTERNAL_ERROR,
+        )
+        raise
+
+    file_size_bytes = len(content)
+    record_statement_ingestion_success(
+        content_type=content_type,
+        file_size_bytes=file_size_bytes,
+    )
+
+    logger.info(
+        "Statement ingestion succeeded",
+        statement_reference=statement_reference,
+        content_type=content_type,
+        file_size_bytes=file_size_bytes,
+    )
 
     return StatementUploadResponse(
         statement_reference=statement_reference,

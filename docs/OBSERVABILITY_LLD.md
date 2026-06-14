@@ -2,130 +2,210 @@
 
 ## Purpose
 
-This document defines the implementation-level observability design for Spend Analyzer. It complements `LLD.md`; operational commands remain in `LOCAL_OBSERVABILITY.md`.
+This document defines the implementation-level observability decisions for the current Spend Analyzer application flows. Operational commands are documented in `LOCAL_OBSERVABILITY.md`.
 
-## Application wiring
+## Tracing decision
 
-`app/main.py` configures logging, creates FastAPI, adds request-context middleware, configures tracing, registers business routers, and registers the metrics endpoint last.
+Issue #78 uses automatic infrastructure tracing only:
 
-This ordering preserves active trace context, prevents metrics-route shadowing, and excludes metric scrapes from request logs, HTTP metrics, and traces. The application remains usable when metrics or tracing are disabled.
+- incoming FastAPI requests are traced by `FastAPIInstrumentor`;
+- supported outbound HTTP calls are traced by `RequestsInstrumentor`;
+- configured identity-provider issuer and JWKS endpoints are excluded from generic outbound tracing;
+- application routes and services do not import OpenTelemetry or create manual spans;
+- custom business and dependency spans are deferred to separate work.
 
-## Module responsibilities
+The application configures one tracing provider. Completed spans pass through a sanitizing span processor before batching and OTLP export.
 
-| Module | Responsibility |
+The sanitization boundary removes or replaces:
+
+- concrete path values;
+- query parameter values;
+- credentials embedded in URLs;
+- raw exception messages;
+- exception stack traces;
+- uncontrolled span-status descriptions.
+
+Database health uses the automatic incoming request trace plus a bounded database dependency gauge. Dedicated Psycopg instrumentation requires separate dependency and integration validation.
+
+## Request correlation and HTTP outcome logging
+
+The request-context middleware owns:
+
+- `request_id` validation, generation, and propagation;
+- one `http.request` outcome log per non-metrics request;
+- automatic HTTP status and duration fields;
+- the safe request target used by request logs and Problem Details;
+- containment of otherwise unhandled exceptions before they escape to server logging.
+
+Ambient structlog context contains correlation identifiers only. Request targets are event-local data and are not bound to every application log.
+
+The safe request target contract is:
+
+- resolved route template instead of concrete dynamic path values;
+- retained query parameter names when safe and bounded;
+- `[REDACTED]` for every query parameter value;
+- no scheme, host, port, fragment, headers, or request body.
+
+Examples:
+
+```text
+/items/{item_id}
+/items/{item_id}?source=%5BREDACTED%5D
+/<unmatched>?source=%5BREDACTED%5D
+```
+
+Logging policy:
+
+- `2xx` request outcomes are INFO;
+- `4xx` and `5xx` request outcomes are ERROR;
+- controlled failure diagnostics are logged centrally;
+- request start and request completion events are not emitted separately.
+
+HTTP metrics continue using bounded route templates and never use the request-target value as a label.
+
+## Error handling and Problem Details
+
+Application code raises typed `ApplicationError` subclasses. Central handlers own:
+
+- stable RFC 9457-compatible problem mapping;
+- safe client-facing details;
+- protocol headers such as `WWW-Authenticate` and `Allow`;
+- sanitized validation errors;
+- the final diagnostic error log;
+- generic handling for unexpected exceptions.
+
+Every problem response contains:
+
+```text
+type
+title
+status
+detail
+instance
+request_id
+url
+```
+
+`instance` identifies the occurrence using the request ID. The `X-Request-ID` response header matches the body extension.
+
+Framework `HTTPException.detail`, raw Pydantic input values, raw exception messages, and stack traces are not copied into responses.
+
+## Flow-decision matrix
+
+| Flow | Observability decision |
 |---|---|
-| `app/observability/context.py` | Request, trace, and span correlation context |
-| `app/observability/logging.py` | Structured JSON output and safe rendering |
-| `app/observability/middleware.py` | Request ID, duration, outcome event, and safe 500 response |
-| `app/observability/metrics.py` | HTTP and custom application metrics |
-| `app/observability/tracing.py` | OpenTelemetry configuration and manual span helpers |
+| Application startup | One structured lifecycle log; no metric or custom span |
+| Application shutdown | One structured lifecycle log; no metric or custom span |
+| Generic HTTP request | One outcome log, automatic server span, bounded HTTP metrics |
+| Successful `/health` | Baseline HTTP telemetry only |
+| Successful `/health/db` | Baseline HTTP telemetry plus database dependency gauge |
+| Failed `/health/db` | Problem Details 503, centralized diagnostic, dependency gauge |
+| Successful `/me` | Baseline HTTP telemetry only |
+| Missing credentials | Problem Details 401 plus bounded auth-failure metric |
+| Invalid credentials | Problem Details 401 plus bounded auth-failure metric |
+| Successful authentication | Baseline HTTP telemetry only |
+| Cached JWKS lookup | No additional telemetry |
+| Successful JWKS network fetch | Identity-provider dependency gauge; provider endpoint excluded from generic outbound tracing |
+| Failed or unusable JWKS response | Problem Details 503, centralized diagnostic, dependency gauge; no invalid-credential metric |
+| Successful statement ingestion | Structured business outcome plus bounded ingestion metrics |
+| Invalid PDF | Problem Details 400, bounded failure metric, centralized diagnostic |
+| Upload too large | Problem Details 413, bounded failure metric, centralized diagnostic |
+| File storage unavailable | Problem Details 503, storage and ingestion metrics, centralized diagnostic |
+| Internal storage failure | Safe Problem Details 500, bounded storage and ingestion metrics, centralized diagnostic |
+| Database connection helper | No direct telemetry; caller boundary owns observability |
+| Upload/storage helper | No direct telemetry unless it becomes a reusable external dependency boundary |
+| `/metrics` | Excluded from request logs, HTTP metrics, and traces |
 
-Business modules reuse these helpers rather than creating additional middleware, registries, or providers.
+## Identity-provider boundary
 
-## Configuration
+JWKS access is treated as an external dependency rather than an authentication failure.
 
-```text
-LOG_LEVEL
-LOG_FORMAT
-METRICS_ENABLED
-METRICS_PATH
-TRACING_ENABLED
-OTEL_SERVICE_NAME
-OTEL_EXPORTER_OTLP_ENDPOINT
-OTEL_SAMPLE_RATIO
-```
-
-The metrics path must be a non-root absolute path and must not conflict with an application route. Local Prometheus currently scrapes `/metrics`. Tracing is disabled by default, and the application does not depend on the optional observability profile.
-
-## Request context and logging
-
-Every request accepts an incoming `X-Request-ID` or receives a generated UUID. The identifier is returned on all responses, including generic 500 responses. Active trace and span identifiers are added to logs when tracing is enabled.
-
-The middleware emits one `http.request` outcome-summary event with method, route template, status, duration, and correlation context. Separate request-start and request-completion events are intentionally avoided.
-
-The logging pipeline removes uncontrolled exception and stack inputs before JSON rendering. Application code records bounded failure categories and exception class names.
-
-## Metrics design
-
-HTTP instrumentation provides request count, grouped status, request and response size, and request duration using route templates.
-
-Custom metrics:
-
-| Metric | Type | Labels |
-|---|---|---|
-| `app_exceptions_total` | Counter | `exception_category` |
-| `app_dependency_health_status` | Gauge | `dependency` |
-| `auth_failures_total` | Counter | `failure_category` |
-| `file_storage_failures_total` | Counter | `failure_category` |
-| `statement_ingestion_attempts_total` | Counter | none |
-| `statement_ingestion_success_total` | Counter | `content_type` |
-| `statement_ingestion_failures_total` | Counter | `failure_category` |
-| `statement_upload_size_bytes` | Histogram | `content_type` |
-
-Metric labels remain bounded. Correlation identifiers, user identifiers, statement references, filenames, paths, and exception messages are not metric labels. Upload-size histogram buckets are expressed in bytes.
-
-## Tracing design
-
-Tracing uses an OpenTelemetry provider, service resource attributes, ratio-based sampling, batch processing, OTLP/gRPC export, FastAPI instrumentation, and outbound `requests` instrumentation.
-
-Manual spans disable automatic exception capture and automatic error status. The safe exception helper records only the exception class name.
-
-Current manual spans:
+Bounded failure categories:
 
 ```text
-statement.ingestion
-database.health_check
+request_failed
+invalid_response
 ```
 
-## Authentication observability
+A JWKS document is usable only when it contains at least one supported RSA signing key with the required key material.
 
-Bounded authentication failure categories are:
+Safe dependency context may contain:
+
+- dependency name;
+- operation name;
+- bounded failure category;
+- exception class name;
+- configured timeout.
+
+It must not contain:
+
+- issuer or JWKS URL;
+- token or authorization header;
+- key ID;
+- provider payload;
+- raw exception message.
+
+Identity-provider unavailability returns 503 and does not increment `auth_failures_total`.
+
+## Ingestion and storage taxonomy
+
+Statement-ingestion failure categories:
 
 ```text
-missing_credentials
-credentials_invalid
+invalid_pdf
+upload_too_large
+storage_unavailable
+storage_internal_error
 ```
 
-Failures return 401 and increment `auth_failures_total`. Authentication material, validation messages, issuers, and identity fields are excluded from telemetry. Successful `/me` requests use baseline HTTP telemetry only.
+File-storage failure categories:
 
-## Database-health observability
+```text
+unavailable
+internal_error
+```
 
-`GET /health/db` creates `database.health_check` and updates the database dependency gauge.
+Typed exceptions distinguish invalid client input, unavailable storage, and internal storage defects. The centralized handler maps each boundary to a stable problem type and safe response.
 
-Success:
+## Logging guidance
 
-- HTTP 200;
-- gauge value `1`;
-- span outcome `healthy`;
-- no per-probe success event.
+Use the existing structured logger directly:
 
-Failure:
+```python
+logger.info("Statement ingestion succeeded", file_size_bytes=file_size_bytes)
+logger.debug("Statement upload content read", file_size_bytes=file_size_bytes)
+```
 
-- HTTP 503;
-- gauge value `0`;
-- error span status;
-- bounded category `connection_error` or `health_check_failed`;
-- safe warning event;
-- exception class event for database-driver failures.
+Request ID, trace ID, span ID, HTTP status, and duration are supplied by common infrastructure where applicable. Application code should not calculate request duration or import tracing APIs.
 
-Connection details, query text, bind values, host details, and raw exception messages are excluded.
+Do not log every function entry and exit.
 
-## Statement-ingestion observability
+## Metrics and safety
 
-The attempt counter increments before validation, and the route creates `statement.ingestion`.
+Metric labels must be bounded. Never use:
 
-Success records normalized content type, file size, success counter, upload-size observation, succeeded span outcome, and a safe business event.
+- actual request targets;
+- request, trace, or span IDs;
+- user IDs;
+- statement references;
+- filenames;
+- exception messages;
+- arbitrary institution or account values.
 
-Bounded failures:
+Do not expose passwords, API keys, bearer values, authorization headers, identity claims, raw user identities, database connection strings, SQL, statement contents, provider payloads, or uncontrolled exception text in logs, metrics, traces, or error responses.
 
-| Category | Meaning | Status |
-|---|---|---:|
-| `upload_too_large` | Configured size exceeded | 413 |
-| `file_validation_or_storage` | Invalid input or validation failure | 400 |
-| `storage_error` | Filesystem unavailable | 503 |
+## Testing requirements
 
-A storage failure also increments `file_storage_failures_total`. Ingestion telemetry excludes original filenames, user identifiers, optional metadata hints, PDF content, and raw exception text.
+Observability tests must verify both behavior and data exclusion:
 
-## File-storage boundary
+- one request outcome log;
+- status and duration supplied automatically;
+- route templates and redacted query values;
+- request-ID consistency across logs, headers, and Problem Details;
+- controlled framework and validation messages;
+- exception containment;
+- bounded metrics;
+- sanitized span attributes, events, and status;
+- absence of credentials, path values, query values, raw exceptions, and stack traces.
 
-The storage service translates filesystem failures into `FileStorageUnavailableError`. This prevents operating-system details from being exposed, distinguishes invalid input from unavailable storage, and allows the route to return 503 and update both ingestion and storage metrics. Blocking writes run in a thread pool.
+CI enforces at least 95% line coverage and 95% branch coverage.

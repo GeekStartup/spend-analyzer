@@ -30,3 +30,28 @@ def test_app_preserves_incoming_request_id_header():
 
     assert response.status_code == 200
     assert response.headers[REQUEST_ID_HEADER] == "request-123"
+
+
+def test_app_lifespan_logs_startup_and_shutdown(monkeypatch):
+    info_calls = []
+    monkeypatch.setattr(
+        "app.main.logger.info",
+        lambda *args, **kwargs: info_calls.append((args, kwargs)),
+    )
+
+    with TestClient(app) as lifespan_client:
+        response = lifespan_client.get("/health")
+        assert response.status_code == 200
+
+    assert info_calls == [
+        (
+            ("Application started",),
+            {"environment": "test", "version": "0.1.0"},
+        ),
+        (
+            ("Application stopped",),
+            {"environment": "test", "version": "0.1.0"},
+        ),
+    ]
+    assert "change_me" not in str(info_calls)
+    assert "postgresql" not in str(info_calls)
