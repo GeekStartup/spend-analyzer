@@ -94,3 +94,68 @@ Generic deterministic parser
 Do not create a parser for every card product unless evidence shows that a broad parser cannot support the format.
 
 AI fallback must not silently override deterministic results.
+
+### 8. Repository context and documentation reading map
+
+Before proposing, reviewing, sequencing, or changing repository content:
+
+1. Read all of `AGENTS_CORE.md`.
+2. Read the root `README.md` for the current implemented/planned status and developer entry points.
+3. Read `docs/README.md` to identify the authoritative document for the work area.
+4. Inspect the current GitHub issue, related pull requests, latest `main`, and active CI/review state.
+5. Read the relevant focused documents before designing or changing that area.
+
+Use the documentation as follows:
+
+- `README.md`: concise repository status and entry points; not the detailed design source;
+- `docs/README.md`: documentation index and ownership rules;
+- `docs/PROJECT_REQUIREMENTS.md`: product scope and functional/non-functional requirements;
+- `docs/MVP_ROADMAP.md`: MVP phases, issue breakdown, and default build order;
+- `docs/HLD.md`: system architecture, major components, flows, and deployment view;
+- `docs/LLD.md`: module boundaries, contracts, validation, persistence, and implementation design;
+- `docs/OBSERVABILITY_LLD.md`: logging, metrics, tracing, correlation, and telemetry-safety design;
+- `docs/PARSING_STRATEGY.md`: deterministic parsing, broad parser, AI fallback, validation, and review strategy;
+- `docs/LOCAL_IDENTITY_PROVIDER.md` and `docs/LOCAL_OBSERVABILITY.md`: local operational procedures;
+- `docs/LEARNING_GUIDE.md`: learning objectives, teaching expectations, and learning-track sequencing.
+
+Do not read only `README.md` and infer the design. Do not duplicate detailed design into `AGENTS.md`.
+
+GitHub and the current `main` branch are the source of truth for implementation state. If an issue, document, and current code disagree, identify and reconcile the inconsistency before implementation rather than silently following stale text.
+
+### 9. Default dependency-ordered delivery sequence
+
+Use dependency order rather than issue-number order. Before starting each issue, re-check open/closed state, prerequisites, current code, the roadmap, and any approved reprioritization.
+
+The current default sequence is:
+
+```text
+#8 statement metadata persistence
+→ #9 deterministic PDF extraction
+→ #10 deterministic parsing pipeline (split into reviewable sub-issues where necessary)
+→ #11 rule-based categorization
+→ #12 validated transaction persistence
+→ #43 AI client abstraction
+→ #44 structured-output validation
+→ #45 prompt templates and fixture-based evaluation
+→ #42 AI parsing fallback
+→ #13–#16 deterministic analytics
+→ #20 deterministic anomaly detection
+→ #19 AI categorization fallback
+→ #17 refine and implement AI insight service
+→ #18 AI insights API
+→ #22 → #23 → #24 → #21 natural-language query pipeline
+→ #25–#29 RAG and semantic retrieval
+→ #46–#48 controlled agentic AI
+→ #35–#40 frontend
+→ #30–#34 additional ingestion and product automation
+```
+
+Rules for using this sequence:
+
+- complete the deterministic ingestion and analytics foundations before AI, RAG, or agents depend on them;
+- establish shared AI abstractions and validation before feature services call a provider;
+- keep SQL/backend logic as the source of truth for financial calculations;
+- split oversized issues into coherent, reviewable implementation units rather than creating one large PR;
+- update `docs/MVP_ROADMAP.md` and this compact sequence when the approved delivery plan changes;
+- security defects, production failures, dependency vulnerabilities, and explicitly approved priorities may supersede this default sequence;
+- Issue #71 remains parked until its developer-experience work is explicitly prioritized.
